@@ -191,8 +191,10 @@ source:     "fused" | "2d_only" | "3d_only"
 box_2d:     (x_min, y_min, x_max, y_max)
 points_3d:  N x 3 array (partial cluster)
 centroid:   (x, y, z) meters
-bbox_3d:    (width, height, depth) meters
+color:      (R, G, B) for point cloud visualization
 ```
+
+Each object label gets a unique color. All points belonging to that object are rendered in that color in the 3D viewer (e.g., mug=red, phone=yellow, cup=green).
 
 ---
 
@@ -235,7 +237,7 @@ bbox_3d:    (width, height, depth) meters
 - **Metrics:** IoU for 2D boxes, centroid error (cm) for 3D localization
 - **Ground truth:** Manual measurement -- place known objects at measured positions, compare predicted centroids
 - **Offline dev:** Record SVO files from ZED, replay during development without camera plugged in
-- **Demo scenario:** Detect and locate 5 household objects on a table (mug, phone, banana, book, bottle). Centroid error < 5cm = v1 success.
+- **Demo scenario:** Detect and locate 5 household objects on a table (mug, phone, cup, fork, bottle). Centroid error < 5cm = v1 success.
 
 ### Visualization
 - **Tools:** OpenCV for 2D overlay (bounding boxes + labels on RGB), Open3D for 3D point cloud rendering
