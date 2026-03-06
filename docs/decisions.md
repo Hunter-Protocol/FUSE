@@ -17,19 +17,11 @@ Rationale behind major v1 decisions. See `brainstorm.md` for full exploration.
 | Vocabulary | Open-vocab | Detect arbitrary objects via text prompts, no retraining |
 | Training | Pretrained only | Generalizes well; fine-tune later if needed |
 
-## 3D Segmentation
+## 3D Extraction (changed from PointNet++)
 | Decision | Choice | Why |
 |----------|--------|-----|
-| Model | PointNet++ (semantic) | Lighter VRAM (~1-2GB), simpler. Mask3D in v2 |
-| Training data | ScanNet-pretrained | Already knows indoor categories |
-| Labeling | Deferred | Not fine-tuning for v1 |
-
-## Fusion
-| Decision | Choice | Why |
-|----------|--------|-----|
-| Method | Projection (3D->2D) | Simpler, deterministic, no instance seg needed |
-| Conflicts | 2D wins | YOLO more reliable than pretrained PointNet++ |
-| Unmatched | Keep both sides | Tag with source field, let downstream decide |
+| Method | YOLO World Seg masks → point cloud lookup | Pretrained 3D models (PointNet++, Mask3D) don't cover small household objects (mug, fork, phone). YOLO Seg pixel masks projected into 3D give clean per-object clusters with one model. |
+| Separate 3D model | Dropped for v1 | No open-vocab 3D seg model is real-time ready. YOLO Seg handles detection + 3D extraction in a single pass. |
 | Coordinate frame | Camera frame | ZED default, no extra transforms |
 
 ## System

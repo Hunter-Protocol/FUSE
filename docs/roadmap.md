@@ -11,14 +11,14 @@
 - Load YOLO World, run on ZED RGB frames
 - Draw bounding boxes + labels on OpenCV window
 
-### Phase 3: 3D Segmentation (standalone)
-- Load PointNet++ (ScanNet-pretrained), run on ZED point cloud
-- Color points by semantic label in Open3D
+### Phase 3: 3D Extraction via Segmentation Masks
+- Upgrade YOLO World to YOLO World Seg (pixel-level masks)
+- Project masked pixels into ZED point cloud → per-object 3D clusters
+- Color each object's points by label in Open3D
 
-### Phase 4: Fusion
-- Wire both branches with async threads
-- Project 3D points into 2D, assign YOLO labels
-- Output FusedObject dataclass
+### Phase 4: Fused Output
+- Wire detection + 3D extraction into single pipeline
+- Output FusedObject dataclass (label + box + 3D cluster + centroid)
 
 ### Phase 5: Visualization + Validation
 - Side-by-side: OpenCV (2D boxes) + Open3D (colored point clouds)

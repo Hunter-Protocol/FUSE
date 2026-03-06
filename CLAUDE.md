@@ -6,9 +6,9 @@ Real-time 2D/3D perception pipeline: ZED stereo camera -> unified per-object out
 
 ```
 ZED Mini (720p, SDK v5.2.1)
-  ├── RGB ──> YOLO World (open-vocab, pretrained) ──> label + 2D box
-  ├── Point Cloud ──> PointNet++ (semantic, ScanNet-pretrained) ──> 3D segments
-  └── Fusion (projection method) ──> unified FusedObject per object
+  ├── RGB ──> YOLO World Seg (open-vocab, pretrained) ──> label + 2D box + pixel mask
+  ├── Depth/Point Cloud ──> mask projection ──> per-object 3D point cluster
+  └── FusedObject per object (label + box + 3D cluster + centroid)
 ```
 
 ## Key Decisions (v1)
@@ -16,9 +16,8 @@ ZED Mini (720p, SDK v5.2.1)
 - **Hardware:** RTX 3070 (8GB VRAM), Razer Blade 15
 - **Language:** Python only, standalone (no ROS2)
 - **Inference:** PyTorch, no TensorRT yet
-- **Fusion:** Project 3D points into 2D via ZED calibration matrix, assign to YOLO bounding boxes
-- **Conflicts:** 2D label wins over 3D when they disagree
-- **Unmatched detections:** Keep from both modalities, tag as `"fused"`, `"2d_only"`, or `"3d_only"`
+- **3D extraction:** YOLO World Seg pixel masks → project masked pixels into 3D via ZED point cloud → per-object 3D cluster
+- **No separate 3D model for v1:** PointNet++ dropped — pretrained 3D models don't cover small household objects. Single YOLO World Seg model handles both 2D detection and 3D extraction.
 - **Coordinate frame:** Camera frame
 - **Shape completion:** Deferred to v2
 - **Branches run async** (parallel threads), target 15 FPS, ~100ms latency
@@ -56,7 +55,7 @@ Detect and locate 5 household objects on a table (mug, phone, cup, fork, bottle)
 
 ## V2 Backlog
 
-- Mask3D (instance segmentation) replacing PointNet++
+- Dedicated 3D segmentation model (Mask3D or PointNet++)
 - Shape completion (AdaPoinTr)
 - TensorRT optimization
 - ROS2 integration
