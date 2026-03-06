@@ -71,10 +71,16 @@ def main():
     print(f"Detecting: {classes}")
 
     with ZEDCamera(svo_path=svo_path) as cam:
-        # Set up Open3D visualizer
-        vis = o3d.visualization.Visualizer()
-        vis.create_window("FUSE - 3D Objects", width=720, height=480)
-        pcd = o3d.geometry.PointCloud()
+        # Set up Open3D visualizer for detected objects
+        vis_obj = o3d.visualization.Visualizer()
+        vis_obj.create_window("FUSE - 3D Objects", width=720, height=480, left=750, top=50)
+        pcd_obj = o3d.geometry.PointCloud()
+
+        # Set up Open3D visualizer for full scene
+        vis_scene = o3d.visualization.Visualizer()
+        vis_scene.create_window("FUSE - Full Point Cloud", width=720, height=480, left=750, top=580)
+        pcd_scene = o3d.geometry.PointCloud()
+
         first_frame = True
 
         print("Press 'q' in the RGB window to quit.")
@@ -112,25 +118,38 @@ def main():
                 all_xyz.append(xyz)
                 all_colors.append(colors)
 
-            # Update 3D visualization
+            # Update detected objects 3D visualization
             if all_xyz:
                 xyz_combined = np.vstack(all_xyz)
                 colors_combined = np.vstack(all_colors)
-                pcd.points = o3d.utility.Vector3dVector(xyz_combined)
-                pcd.colors = o3d.utility.Vector3dVector(colors_combined)
+                pcd_obj.points = o3d.utility.Vector3dVector(xyz_combined)
+                pcd_obj.colors = o3d.utility.Vector3dVector(colors_combined)
             else:
-                pcd.points = o3d.utility.Vector3dVector(np.zeros((0, 3)))
-                pcd.colors = o3d.utility.Vector3dVector(np.zeros((0, 3)))
+                pcd_obj.points = o3d.utility.Vector3dVector(np.zeros((0, 3)))
+                pcd_obj.colors = o3d.utility.Vector3dVector(np.zeros((0, 3)))
+
+            # Update full scene point cloud
+            scene_xyz, scene_rgb = cam.get_point_cloud()
+            if len(scene_xyz) > 200_000:
+                idx = np.random.choice(len(scene_xyz), 200_000, replace=False)
+                scene_xyz, scene_rgb = scene_xyz[idx], scene_rgb[idx]
+            pcd_scene.points = o3d.utility.Vector3dVector(scene_xyz)
+            pcd_scene.colors = o3d.utility.Vector3dVector(scene_rgb)
 
             if first_frame:
-                vis.add_geometry(pcd)
-                vis.get_render_option().point_size = 2.0
+                vis_obj.add_geometry(pcd_obj)
+                vis_obj.get_render_option().point_size = 2.0
+                vis_scene.add_geometry(pcd_scene)
+                vis_scene.get_render_option().point_size = 2.0
                 first_frame = False
             else:
-                vis.update_geometry(pcd)
+                vis_obj.update_geometry(pcd_obj)
+                vis_scene.update_geometry(pcd_scene)
 
-            vis.poll_events()
-            vis.update_renderer()
+            vis_obj.poll_events()
+            vis_obj.update_renderer()
+            vis_scene.poll_events()
+            vis_scene.update_renderer()
 
             # Draw 2D overlay with masks + centroids
             frame = draw_detections(bgr, detections)
@@ -146,7 +165,8 @@ def main():
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
-        vis.destroy_window()
+        vis_obj.destroy_window()
+        vis_scene.destroy_window()
         cv2.destroyAllWindows()
 
 
