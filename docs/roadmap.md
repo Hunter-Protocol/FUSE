@@ -8,11 +8,11 @@
 - Record an SVO file for offline dev
 
 ### Phase 2: 2D Detection (standalone)
-- Load YOLO World, run on ZED RGB frames
+- Load YOLOE, run on ZED RGB frames
 - Draw bounding boxes + labels on OpenCV window
 
 ### Phase 3: 3D Extraction via Segmentation Masks
-- Upgrade YOLO World to YOLO World Seg (pixel-level masks)
+- Upgrade YOLOE to YOLOE Seg (pixel-level masks)
 - Project masked pixels into ZED point cloud → per-object 3D clusters
 - Color each object's points by label in Open3D
 

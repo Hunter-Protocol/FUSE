@@ -20,8 +20,8 @@ Rationale behind major v1 decisions. See `brainstorm.md` for full exploration.
 ## 3D Extraction (changed from PointNet++)
 | Decision | Choice | Why |
 |----------|--------|-----|
-| Method | YOLO World Seg masks → point cloud lookup | Pretrained 3D models (PointNet++, Mask3D) don't cover small household objects (mug, fork, phone). YOLO Seg pixel masks projected into 3D give clean per-object clusters with one model. |
-| Separate 3D model | Dropped for v1 | No open-vocab 3D seg model is real-time ready. YOLO Seg handles detection + 3D extraction in a single pass. |
+| Method | YOLOE Seg masks → point cloud lookup | Pretrained 3D models (PointNet++, Mask3D) don't cover small household objects (mug, fork, phone). YOLOE Seg pixel masks projected into 3D give clean per-object clusters with one model. |
+| Separate 3D model | Dropped for v1 | No open-vocab 3D seg model is real-time ready. YOLOE Seg handles detection + 3D extraction in a single pass. |
 | Coordinate frame | Camera frame | ZED default, no extra transforms |
 
 ## System

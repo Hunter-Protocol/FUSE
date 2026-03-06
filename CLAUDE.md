@@ -6,7 +6,7 @@ Real-time 2D/3D perception pipeline: ZED stereo camera -> unified per-object out
 
 ```
 ZED Mini (720p, SDK v5.2.1)
-  ├── RGB ──> YOLO World Seg (open-vocab, pretrained) ──> label + 2D box + pixel mask
+  ├── RGB ──> YOLOE Seg (open-vocab, pretrained) ──> label + 2D box + pixel mask
   ├── Depth/Point Cloud ──> mask projection ──> per-object 3D point cluster
   └── FusedObject per object (label + box + 3D cluster + centroid)
 ```
@@ -16,8 +16,8 @@ ZED Mini (720p, SDK v5.2.1)
 - **Hardware:** RTX 3070 (8GB VRAM), Razer Blade 15
 - **Language:** Python only, standalone (no ROS2)
 - **Inference:** PyTorch, no TensorRT yet
-- **3D extraction:** YOLO World Seg pixel masks → project masked pixels into 3D via ZED point cloud → per-object 3D cluster
-- **No separate 3D model for v1:** PointNet++ dropped — pretrained 3D models don't cover small household objects. Single YOLO World Seg model handles both 2D detection and 3D extraction.
+- **3D extraction:** YOLOE Seg pixel masks → project masked pixels into 3D via ZED point cloud → per-object 3D cluster
+- **No separate 3D model for v1:** PointNet++ dropped — pretrained 3D models don't cover small household objects. Single YOLOE Seg model handles both 2D detection and 3D extraction.
 - **Coordinate frame:** Camera frame
 - **Shape completion:** Deferred to v2
 - **Branches run async** (parallel threads), target 15 FPS, ~100ms latency
