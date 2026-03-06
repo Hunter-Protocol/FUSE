@@ -44,6 +44,10 @@ class FusedObject:
 
 Detect and locate 5 household objects on a table (mug, phone, cup, fork, bottle). Centroid error < 5cm.
 
+## Workflow Rules
+
+- Update `docs/` folder after major milestones and major additions to the project
+
 ## Dev Workflow
 
 - Record SVO files from ZED for offline development
