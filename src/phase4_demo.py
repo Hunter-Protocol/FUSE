@@ -1,6 +1,7 @@
 """Phase 4 demo: Full FUSE pipeline with FusedObject output."""
 
 import sys
+import time
 import cv2
 import numpy as np
 import open3d as o3d
@@ -68,19 +69,22 @@ def main():
 
         first_frame = True
         needs_view_reset = True
+        prev_time = time.time()
+        fps = 0.0
+        frame_count = 0
         print("Press 'q' in the RGB window to quit.")
 
         while True:
-            bgr, objects, scene_xyz, scene_rgb = pipe.process_frame()
+            update_scene = (frame_count % 3 == 0) or first_frame
+            bgr, objects, scene_xyz, scene_rgb = pipe.process_frame(
+                skip_scene=not update_scene)
             if bgr is None:
                 if svo_path:
                     print("End of SVO file.")
                     break
                 continue
 
-            # Print detections
-            for obj in objects:
-                print(obj)
+            frame_count += 1
 
             # Build object point cloud
             all_xyz, all_colors = [], []
@@ -90,18 +94,24 @@ def main():
                     all_colors.append(np.tile(obj.color, (obj.num_points, 1)))
 
             if all_xyz:
-                pcd_obj.points = o3d.utility.Vector3dVector(np.vstack(all_xyz))
-                pcd_obj.colors = o3d.utility.Vector3dVector(np.vstack(all_colors))
+                obj_pts = np.vstack(all_xyz).astype(np.float64)
+                obj_clr = np.vstack(all_colors).astype(np.float64)
+                pcd_obj.points = o3d.utility.Vector3dVector(np.ascontiguousarray(obj_pts))
+                pcd_obj.colors = o3d.utility.Vector3dVector(np.ascontiguousarray(obj_clr))
             else:
                 pcd_obj.points = o3d.utility.Vector3dVector(np.zeros((0, 3)))
                 pcd_obj.colors = o3d.utility.Vector3dVector(np.zeros((0, 3)))
 
-            # Full scene
-            if len(scene_xyz) > 200_000:
-                idx = np.random.choice(len(scene_xyz), 200_000, replace=False)
-                scene_xyz, scene_rgb = scene_xyz[idx], scene_rgb[idx]
-            pcd_scene.points = o3d.utility.Vector3dVector(scene_xyz)
-            pcd_scene.colors = o3d.utility.Vector3dVector(scene_rgb)
+            # Full scene — only update when scene data was fetched
+            if update_scene:
+                max_pts = 100_000
+                if len(scene_xyz) > max_pts:
+                    idx = np.random.choice(len(scene_xyz), max_pts, replace=False)
+                    scene_xyz, scene_rgb = scene_xyz[idx], scene_rgb[idx]
+                pcd_scene.points = o3d.utility.Vector3dVector(
+                    np.ascontiguousarray(scene_xyz.astype(np.float64)))
+                pcd_scene.colors = o3d.utility.Vector3dVector(
+                    np.ascontiguousarray(scene_rgb))
 
             if first_frame:
                 vis_obj.add_geometry(pcd_obj)
@@ -111,7 +121,8 @@ def main():
                 first_frame = False
             else:
                 vis_obj.update_geometry(pcd_obj)
-                vis_scene.update_geometry(pcd_scene)
+                if update_scene:
+                    vis_scene.update_geometry(pcd_scene)
 
             # Auto-reset camera view once objects are detected
             if needs_view_reset and all_xyz:
@@ -123,8 +134,15 @@ def main():
             vis_scene.poll_events()
             vis_scene.update_renderer()
 
+            # FPS calculation
+            now = time.time()
+            fps = 0.9 * fps + 0.1 * (1.0 / max(now - prev_time, 1e-6))
+            prev_time = now
+
             # 2D overlay
             frame = draw_objects(bgr, objects)
+            cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
             cv2.imshow("FUSE - Pipeline Output", frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break

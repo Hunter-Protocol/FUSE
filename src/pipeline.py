@@ -24,14 +24,14 @@ class FUSEPipeline:
     def get_calibration(self):
         return self.cam.get_calibration()
 
-    def process_frame(self):
+    def process_frame(self, skip_scene=False):
         """Grab a frame, run detection + 3D extraction.
 
         Returns:
             bgr: (H, W, 3) uint8 — raw BGR frame
             objects: list[FusedObject] — detected objects with 3D data
-            scene_xyz: (N, 3) float32 — full scene point cloud
-            scene_rgb: (N, 3) float64 — full scene colors
+            scene_xyz: (N, 3) float32 — full scene point cloud (empty if skip_scene)
+            scene_rgb: (N, 3) float64 — full scene colors (empty if skip_scene)
             Returns (None, None, None, None) if grab fails.
         """
         if not self.cam.grab():
@@ -72,8 +72,12 @@ class FUSEPipeline:
                 color=color,
             ))
 
-        # Full scene point cloud
-        scene_xyz, scene_rgb = self.cam.get_point_cloud()
+        # Full scene point cloud — reuse already-retrieved pc_data
+        if skip_scene:
+            scene_xyz = np.zeros((0, 3), dtype=np.float32)
+            scene_rgb = np.zeros((0, 3), dtype=np.float64)
+        else:
+            scene_xyz, scene_rgb = self.cam.get_point_cloud(pc_data=pc_data)
 
         return bgr, objects, scene_xyz, scene_rgb
 

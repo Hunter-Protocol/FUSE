@@ -41,10 +41,14 @@ class ZEDCamera:
         self.zed.retrieve_image(self.image, sl.VIEW.LEFT)
         return self.image.get_data()[:, :, :3].copy()
 
-    def get_point_cloud(self):
-        """Get point cloud xyz (N,3) and rgb colors (N,3) as float32. NaN points removed."""
-        self.zed.retrieve_measure(self.point_cloud, sl.MEASURE.XYZRGBA)
-        pc_data = self.point_cloud.get_data()
+    def get_point_cloud(self, pc_data=None):
+        """Get point cloud xyz (N,3) and rgb colors (N,3) as float32. NaN points removed.
+
+        If pc_data is provided, skips retrieve_measure (avoids redundant SDK call).
+        """
+        if pc_data is None:
+            self.zed.retrieve_measure(self.point_cloud, sl.MEASURE.XYZRGBA)
+            pc_data = self.point_cloud.get_data()
         xyz = pc_data[:, :, :3].reshape(-1, 3)
         # Extract RGB from the packed RGBA float in channel 3
         rgba_float = pc_data[:, :, 3].reshape(-1)
