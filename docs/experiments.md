@@ -87,6 +87,86 @@ Exploring **image-to-3D models** instead of point-cloud-only completion. These m
 
 ---
 
-## Experiment 2: TBD
+## Experiment 2: TripoSR (Single-Image-to-3D) for Shape Completion
 
-(Next shape completion approach)
+**Date:** 2026-03-10
+**Goal:** Replace PoinTr with an image-based 3D reconstruction model. Use the RGB crop from YOLOE's bounding box to generate a full 3D mesh, then align it to the ZED partial point cloud.
+
+### Setup
+
+- **Model:** TripoSR (Stability AI + Tripo, March 2024), single-image-to-3D mesh
+- **Backbone:** DINOv2 image encoder + transformer + NeRF-style triplane decoder
+- **Training data:** Objaverse (~800K 3D objects rendered from multiple viewpoints)
+- **Input:** Single RGB image crop (512x512), white background, object isolated via YOLOE mask
+- **Output:** Textured 3D mesh (extracted via marching cubes at resolution 192)
+- **Inference time:** ~0.7s inference + ~2.6s mesh extraction = ~3.3s total on RTX 3070
+- **Repo:** stabilityai/TripoSR (HuggingFace)
+- **Marching cubes:** Patched to use scikit-image (torchmcubes failed to build with CUDA)
+
+### Pipeline
+
+1. YOLOE detects mug → bounding box + segmentation mask
+2. Crop RGB using bbox, apply mask with erosion (5x5 kernel) to remove edge bleed
+3. Composite masked object onto white background, pad to square, resize to 512x512
+4. TripoSR inference → scene code → mesh extraction (resolution=192, chunk_size=4096)
+5. Clean mesh: remove disconnected components, keep largest
+6. Sample 8,192 points from mesh surface
+7. Align to ZED partial cloud: scale matching (bbox diagonal ratio) → FPFH feature extraction → RANSAC global registration → ICP refinement
+
+### Results
+
+**Test object:** Dark/gray mug on desk, captured live from ZED Mini
+
+#### Attempt 1: Bbox crop + gray background (145x145 upscaled)
+- **Input:** Tight bbox crop at native resolution (~145px), composited onto 50% gray background
+- **Mesh output:** Boxy wedge shape, not recognizable as a mug
+- **Alignment:** Brute-force rotation + ICP, fitness=0.000 (zero correspondences)
+- **Cause:** Crop too small (145px upscaled = very blurry), gray background wrong for model, background elements visible in crop
+
+#### Attempt 2: Mask-isolated crop + white background (512x512)
+- **Input:** YOLOE mask with erosion, white background, resized to 512x512
+- **Mesh output:** Still a boxy/wedge shape, not recognizable as a mug
+- **Alignment:** FPFH + RANSAC (fitness=0.282, 886 correspondences) → ICP (fitness=0.204, RMSE=0.0018m)
+- **Improvement:** Alignment now finds correspondences, but the mesh shape is still wrong
+
+### Screenshots
+
+#### Attempt 2 (latest)
+![TripoSR attempt 2](screenshots/triposr_attempt2.png)
+- **Bottom-left (Input):** Mug crop with white background — mask isolation working, but pixelated due to upscaling from ~145px native resolution
+- **Top-left (Mesh):** TripoSR canonical mesh — boxy wedge, no mug-like features, no handle visible
+- **Top-right (Alignment):** RED = ZED partial cloud, CYAN = TripoSR sampled points — partial overlap but shapes don't match
+
+### Analysis: Why TripoSR Fails on This Input
+
+1. **No semantic understanding:** TripoSR is purely geometry-from-appearance — it has no concept of what a "mug" is. It doesn't know a mug should have a hollow interior (for holding liquid), a hole under the handle (for gripping), or cylindrical symmetry. It just reconstructs whatever 3D shape matches the image silhouette, producing a solid blob instead of a functional object. This is a fundamental architectural limitation — the model lacks category/text conditioning.
+
+2. **Low effective resolution:** The mug bbox in the 720p frame is only ~145 pixels across. Upscaling to 512x512 produces a blurry, pixelated input. TripoSR was trained on sharp, high-quality renders — blurry inputs confuse the DINOv2 encoder.
+
+3. **Dark/reflective surface:** The mug is dark gray/metallic with specular reflections. TripoSR struggles with reflective objects because the appearance is view-dependent and doesn't match Objaverse's mostly diffuse training objects.
+
+4. **Mask edge artifacts:** Even with erosion, the mask edges have staircase artifacts (jagged pixels). At low resolution, these artifacts take up a significant portion of the object boundary.
+
+5. **Objaverse training bias:** TripoSR was trained on Objaverse renders with clean studio lighting and centered objects. Real ZED crops have uneven lighting, motion blur, and sensor noise.
+
+6. **Handle occlusion:** The mug handle is partially self-occluded and dark, making it hard for the model to infer handle geometry from the silhouette alone.
+
+### Potential Improvements
+
+- **Higher resolution capture:** Use ZED at 1080p or 2K mode so the mug bbox is 300+ pixels natively
+- **Better background removal:** Use rembg (U2-Net) for cleaner segmentation instead of YOLOE mask
+- **Lighting normalization:** Apply histogram equalization or white-balance correction before feeding to TripoSR
+- **Text-conditioned models:** Use models that accept text + image (e.g., Hunyuan3D 2.0, Trellis) so the model knows it's reconstructing a "mug" and can infer semantic features like hollow interior and handle hole
+- **Multi-view:** Capture from 2-3 viewpoints and use a multi-view reconstruction model
+
+### Conclusion
+
+TripoSR produces poor mesh quality on real ZED crops at 720p resolution. The primary bottleneck is input quality — the mug occupies too few pixels in the 720p frame, and upscaling introduces blur that the model can't recover from. The mesh doesn't resemble the target object, making downstream alignment meaningless regardless of the registration algorithm used.
+
+**Status:** Not viable in current form. Need higher resolution input or a different approach.
+
+---
+
+## Experiment 3: TBD
+
+(Next approach — higher resolution capture, alternative model, or multi-view)
