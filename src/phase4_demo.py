@@ -67,6 +67,7 @@ def main():
         pcd_scene = o3d.geometry.PointCloud()
 
         first_frame = True
+        needs_view_reset = True
         print("Press 'q' in the RGB window to quit.")
 
         while True:
@@ -111,6 +112,11 @@ def main():
             else:
                 vis_obj.update_geometry(pcd_obj)
                 vis_scene.update_geometry(pcd_scene)
+
+            # Auto-reset camera view once objects are detected
+            if needs_view_reset and all_xyz:
+                vis_obj.reset_view_point(True)
+                needs_view_reset = False
 
             vis_obj.poll_events()
             vis_obj.update_renderer()

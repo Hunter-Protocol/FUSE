@@ -1,4 +1,5 @@
 *.pt
+*.ts
 *.svo
 *.svo2
 __pycache__/
