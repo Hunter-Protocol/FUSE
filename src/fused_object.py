@@ -1,6 +1,6 @@
 """FusedObject dataclass — the unified output of the FUSE pipeline."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import numpy as np
 
 
@@ -25,12 +25,23 @@ class FusedObject:
     points_3d: np.ndarray    # N x 3 (partial cluster)
     centroid: tuple          # (x, y, z) meters
     color: tuple             # (R, G, B) for point cloud visualization
+    completed_points_3d: np.ndarray | None = field(default=None, repr=False)
+    completed_centroid: tuple | None = None
 
     @property
     def num_points(self):
         return len(self.points_3d)
 
+    @property
+    def num_completed_points(self):
+        return len(self.completed_points_3d) if self.completed_points_3d is not None else 0
+
+    @property
+    def has_completion(self):
+        return self.completed_points_3d is not None
+
     def __repr__(self):
+        comp = f", completed={self.num_completed_points}" if self.has_completion else ""
         return (f"FusedObject(label='{self.label}', conf={self.confidence:.2f}, "
-                f"source='{self.source}', points={self.num_points}, "
+                f"source='{self.source}', points={self.num_points}{comp}, "
                 f"centroid=({self.centroid[0]:.2f}, {self.centroid[1]:.2f}, {self.centroid[2]:.2f}))")

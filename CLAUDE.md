@@ -8,7 +8,8 @@ Real-time 2D/3D perception pipeline: ZED stereo camera -> unified per-object out
 ZED Mini (720p, SDK v5.2.1)
   ├── RGB ──> YOLOE Seg (open-vocab, pretrained) ──> label + 2D box + pixel mask
   ├── Depth/Point Cloud ──> mask projection ──> per-object 3D point cluster
-  └── FusedObject per object (label + box + 3D cluster + centroid)
+  ├── (v2) Shape Completion ──> PoinTr (ShapeNet55) ──> completed 3D shape (8192 pts)
+  └── FusedObject per object (label + box + 3D cluster + centroid + completed shape)
 ```
 
 ## Key Decisions (v1)
@@ -55,8 +56,9 @@ Detect and locate 5 household objects on a table (mug, phone, cup, fork, bottle)
 
 ## V2 Backlog
 
+- ~~Shape completion~~ -- Done (PoinTr ShapeNet55, ~29ms/object, cached)
 - Dedicated 3D segmentation model (Mask3D or PointNet++)
-- Shape completion (AdaPoinTr)
+- Upgrade to AdaPoinTr (when weights available)
 - TensorRT optimization
 - ROS2 integration
 - Robot base / world coordinate frame

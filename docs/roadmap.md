@@ -25,5 +25,23 @@
 - Run 5-object tabletop test (mug, phone, cup, fork, bottle)
 - Measure centroid error (target < 5cm)
 
-## V2
-TBD
+## V2 Phases
+
+### Phase 5: Shape Completion (PoinTr)
+- Integrate PoinTr (ShapeNet55) for completing partial point clouds
+- FPS downsample + normalize → PoinTr inference → denormalize back to camera frame
+- Per-label caching (3cm threshold) to avoid redundant computation on static scenes
+- Third Open3D window showing completed shapes (lighter color = completed points)
+- Toggle completion on/off with 'c' key at runtime
+
+### Phase 6: TensorRT Optimization
+- Convert YOLOE and/or PoinTr to TensorRT for faster inference
+- Target: 20+ FPS with completion enabled
+
+### Phase 7: ROS2 Integration
+- Publish FusedObject as ROS2 messages
+- Robot base / world coordinate frame transform
+
+### Phase 8: Fine-tuning
+- Fine-tune PoinTr on target environment objects
+- Evaluate AdaPoinTr when weights become available

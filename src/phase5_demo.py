@@ -1,0 +1,230 @@
+"""Phase 5 demo: FUSE pipeline with shape completion visualization."""
+
+import sys
+import time
+import cv2
+import numpy as np
+import open3d as o3d
+from pipeline import FUSEPipeline
+
+
+def bgr_color(rgb_color):
+    """Convert normalized RGB to BGR uint8 for OpenCV."""
+    return (int(rgb_color[2] * 255), int(rgb_color[1] * 255), int(rgb_color[0] * 255))
+
+
+def lighter_color(rgb_color, blend=0.5):
+    """Blend a color toward white for completed points."""
+    return tuple(c + (1.0 - c) * blend for c in rgb_color)
+
+
+def draw_objects(frame, objects, completion_enabled):
+    """Draw bounding boxes, masks, labels, and 3D/completion info on frame."""
+    overlay = frame.copy()
+    for obj in objects:
+        color_bgr = bgr_color(obj.color)
+
+        # Draw filled mask
+        overlay[obj.mask] = (
+            overlay[obj.mask] * 0.5 + np.array(color_bgr) * 0.5
+        ).astype(np.uint8)
+
+        # Draw box
+        x1, y1, x2, y2 = obj.box_2d
+        cv2.rectangle(frame, (x1, y1), (x2, y2), color_bgr, 2)
+
+        # Label + confidence
+        text = f"{obj.label} {obj.confidence:.2f}"
+        (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)
+        cv2.rectangle(frame, (x1, y1 - th - 8), (x1 + tw, y1), color_bgr, -1)
+        cv2.putText(frame, text, (x1, y1 - 4),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1)
+
+        # 3D info
+        if obj.source == "fused":
+            cx, cy, cz = obj.centroid
+            info = f"({cx:.2f}, {cy:.2f}, {cz:.2f})m [{obj.num_points}pts]"
+            cv2.putText(frame, info, (x1, y2 + 16),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
+
+            # Completion status
+            if completion_enabled:
+                if obj.has_completion:
+                    comp_text = f"[completed: {obj.num_completed_points}pts]"
+                    cv2.putText(frame, comp_text, (x1, y2 + 32),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 200), 1)
+                else:
+                    cv2.putText(frame, "[no completion]", (x1, y2 + 32),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (100, 100, 255), 1)
+        else:
+            cv2.putText(frame, "[2D only]", (x1, y2 + 16),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (100, 100, 255), 1)
+
+    cv2.addWeighted(overlay, 0.5, frame, 0.5, 0, frame)
+    return frame
+
+
+def main():
+    svo_path = sys.argv[1] if len(sys.argv) > 1 else None
+    classes = ["mug", "phone", "cup", "fork", "bottle"]
+
+    completion_enabled = True
+
+    print("Starting FUSE pipeline with shape completion...")
+    with FUSEPipeline(classes, svo_path=svo_path,
+                      enable_completion=completion_enabled) as pipe:
+        print(f"Calibration: {pipe.get_calibration()}")
+        print(f"Detecting: {classes}")
+        print("Press 'c' to toggle completion, 'q' to quit.")
+
+        # Open3D viewers
+        vis_obj = o3d.visualization.Visualizer()
+        vis_obj.create_window("FUSE - 3D Objects", width=720, height=480,
+                              left=750, top=50)
+        pcd_obj = o3d.geometry.PointCloud()
+
+        vis_scene = o3d.visualization.Visualizer()
+        vis_scene.create_window("FUSE - Full Point Cloud", width=720, height=480,
+                                left=750, top=580)
+        pcd_scene = o3d.geometry.PointCloud()
+
+        vis_comp = o3d.visualization.Visualizer()
+        vis_comp.create_window("FUSE - Completed Shapes", width=720, height=480,
+                               left=0, top=580)
+        pcd_comp = o3d.geometry.PointCloud()
+
+        first_frame = True
+        needs_view_reset = True
+        needs_comp_reset = True
+        prev_time = time.time()
+        fps = 0.0
+        frame_count = 0
+
+        while True:
+            update_scene = (frame_count % 3 == 0) or first_frame
+            bgr, objects, scene_xyz, scene_rgb = pipe.process_frame(
+                skip_scene=not update_scene)
+            if bgr is None:
+                if svo_path:
+                    print("End of SVO file.")
+                    break
+                continue
+
+            frame_count += 1
+
+            # Build object point cloud (partial)
+            all_xyz, all_colors = [], []
+            for obj in objects:
+                if obj.num_points > 0:
+                    all_xyz.append(obj.points_3d)
+                    all_colors.append(np.tile(obj.color, (obj.num_points, 1)))
+
+            if all_xyz:
+                obj_pts = np.vstack(all_xyz).astype(np.float64)
+                obj_clr = np.vstack(all_colors).astype(np.float64)
+                pcd_obj.points = o3d.utility.Vector3dVector(
+                    np.ascontiguousarray(obj_pts))
+                pcd_obj.colors = o3d.utility.Vector3dVector(
+                    np.ascontiguousarray(obj_clr))
+            else:
+                pcd_obj.points = o3d.utility.Vector3dVector(np.zeros((0, 3)))
+                pcd_obj.colors = o3d.utility.Vector3dVector(np.zeros((0, 3)))
+
+            # Build completed shapes point cloud
+            comp_xyz, comp_colors = [], []
+            if completion_enabled:
+                for obj in objects:
+                    if obj.has_completion:
+                        # Original points in solid color
+                        comp_xyz.append(obj.points_3d)
+                        comp_colors.append(
+                            np.tile(obj.color, (obj.num_points, 1)))
+                        # Completed points in lighter shade
+                        light = lighter_color(obj.color)
+                        comp_xyz.append(obj.completed_points_3d)
+                        comp_colors.append(
+                            np.tile(light, (obj.num_completed_points, 1)))
+
+            if comp_xyz:
+                c_pts = np.vstack(comp_xyz).astype(np.float64)
+                c_clr = np.vstack(comp_colors).astype(np.float64)
+                pcd_comp.points = o3d.utility.Vector3dVector(
+                    np.ascontiguousarray(c_pts))
+                pcd_comp.colors = o3d.utility.Vector3dVector(
+                    np.ascontiguousarray(c_clr))
+            else:
+                pcd_comp.points = o3d.utility.Vector3dVector(np.zeros((0, 3)))
+                pcd_comp.colors = o3d.utility.Vector3dVector(np.zeros((0, 3)))
+
+            # Full scene
+            if update_scene:
+                max_pts = 100_000
+                if len(scene_xyz) > max_pts:
+                    idx = np.random.choice(len(scene_xyz), max_pts, replace=False)
+                    scene_xyz, scene_rgb = scene_xyz[idx], scene_rgb[idx]
+                pcd_scene.points = o3d.utility.Vector3dVector(
+                    np.ascontiguousarray(scene_xyz.astype(np.float64)))
+                pcd_scene.colors = o3d.utility.Vector3dVector(
+                    np.ascontiguousarray(scene_rgb))
+
+            if first_frame:
+                vis_obj.add_geometry(pcd_obj)
+                vis_obj.get_render_option().point_size = 2.0
+                vis_scene.add_geometry(pcd_scene)
+                vis_scene.get_render_option().point_size = 2.0
+                vis_comp.add_geometry(pcd_comp)
+                vis_comp.get_render_option().point_size = 2.0
+                first_frame = False
+            else:
+                vis_obj.update_geometry(pcd_obj)
+                vis_comp.update_geometry(pcd_comp)
+                if update_scene:
+                    vis_scene.update_geometry(pcd_scene)
+
+            # Auto-reset camera views once objects are detected
+            if needs_view_reset and all_xyz:
+                vis_obj.reset_view_point(True)
+                needs_view_reset = False
+            if needs_comp_reset and comp_xyz:
+                vis_comp.reset_view_point(True)
+                needs_comp_reset = False
+
+            vis_obj.poll_events()
+            vis_obj.update_renderer()
+            vis_scene.poll_events()
+            vis_scene.update_renderer()
+            vis_comp.poll_events()
+            vis_comp.update_renderer()
+
+            # FPS calculation
+            now = time.time()
+            fps = 0.9 * fps + 0.1 * (1.0 / max(now - prev_time, 1e-6))
+            prev_time = now
+
+            # 2D overlay
+            frame = draw_objects(bgr, objects, completion_enabled)
+            status = "ON" if completion_enabled else "OFF"
+            cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+            cv2.putText(frame, f"Completion: {status} [c]", (10, 60),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)
+            cv2.imshow("FUSE - Pipeline Output", frame)
+
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                break
+            elif key == ord('c'):
+                completion_enabled = not completion_enabled
+                pipe.enable_completion = completion_enabled
+                if completion_enabled:
+                    needs_comp_reset = True
+                print(f"Shape completion: {'ON' if completion_enabled else 'OFF'}")
+
+        vis_obj.destroy_window()
+        vis_scene.destroy_window()
+        vis_comp.destroy_window()
+        cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,7 +1,11 @@
 *.pt
+*.pth
 *.ts
 *.svo
 *.svo2
+*.npy
 __pycache__/
 *.pyc
 .env
+data/
+models/
