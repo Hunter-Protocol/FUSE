@@ -1,10 +1,41 @@
 """FUSE pipeline: ZED camera → YOLOE Seg → 3D extraction → FusedObject output."""
 
 import numpy as np
+import open3d as o3d
 import pyzed.sl as sl
 from camera import ZEDCamera
 from detector import Detector
 from fused_object import FusedObject, LABEL_COLORS, DEFAULT_LABEL_COLOR
+
+
+def remove_outliers(points, nb_neighbors=20, std_ratio=1.5):
+    """Remove depth-bleeding outliers from a mask-extracted point cloud.
+
+    Two-stage filter:
+    1. Depth (Z) filter: remove points whose depth deviates > 2 MAD from median.
+       This catches the main depth-bleeding artifact (background points at mask edges).
+    2. Statistical outlier removal: catch remaining scattered noise.
+    """
+    if len(points) < nb_neighbors + 1:
+        return points
+
+    # Stage 1: depth-based filter using median absolute deviation
+    z = points[:, 2]
+    median_z = np.median(z)
+    mad = np.median(np.abs(z - median_z))
+    if mad > 0:
+        z_mask = np.abs(z - median_z) < 3.0 * mad
+        points = points[z_mask]
+
+    if len(points) < nb_neighbors + 1:
+        return points
+
+    # Stage 2: statistical outlier removal for remaining scatter
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(points.astype(np.float64))
+    _, inlier_idx = pcd.remove_statistical_outlier(
+        nb_neighbors=nb_neighbors, std_ratio=std_ratio)
+    return points[inlier_idx]
 
 
 class FUSEPipeline:
@@ -65,6 +96,9 @@ class FUSEPipeline:
             xyz = pc_data[:, :, :3][mask]
             valid = np.isfinite(xyz).all(axis=1)
             points_3d = xyz[valid].astype(np.float32)
+
+            # Remove depth-bleeding outliers at mask edges
+            points_3d = remove_outliers(points_3d)
 
             color = LABEL_COLORS.get(det["label"], DEFAULT_LABEL_COLOR)
 
