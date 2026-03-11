@@ -167,6 +167,102 @@ TripoSR produces poor mesh quality on real ZED crops at 720p resolution. The pri
 
 ---
 
-## Experiment 3: TBD
+## Experiment 3: Hunyuan3D-2 (Image-to-3D) for Shape Completion
 
-(Next approach — higher resolution capture, alternative model, or multi-view)
+**Date:** 2026-03-10
+**Goal:** Test Hunyuan3D-2 (Tencent) as a higher-quality replacement for TripoSR. Despite being image-only (no text conditioning), evaluate whether its larger model and training data produce semantically correct shapes.
+
+### Setup
+
+- **Model:** Hunyuan3D-2 (Tencent, 2024), DiT-based flow matching for 3D generation
+- **Architecture:** DINOv2 image encoder + DiT diffusion transformer + VAE shape decoder + marching cubes mesh extraction
+- **Training data:** Objaverse (800K+ 3D objects)
+- **Input:** Single RGBA image crop (512x512), object isolated via YOLOE mask, no text prompt
+- **Output:** High-poly 3D mesh (812K vertices, 1.6M faces)
+- **Pipeline:** `Hunyuan3DDiTFlowMatchingPipeline` — shape generation only (no texture stage)
+- **Repo:** github.com/Tencent-Hunyuan/Hunyuan3D-2
+- **Model weights:** ~9.2GB (HuggingFace: tencent/Hunyuan3D-2)
+
+### Timing Breakdown (RTX 3070, 8GB VRAM)
+
+| Stage | Time |
+|-------|------|
+| Model loading (first run) | 24.4s |
+| Diffusion sampling (50 steps) | 46.8s (~0.94s/step) |
+| Volume decoding / mesh extraction (7134 chunks) | 101s |
+| Point sampling (8192 pts from mesh) | <0.1s |
+| FPFH + RANSAC + ICP alignment | ~2s |
+| **Total shape generation** | **~151s** |
+
+### Results
+
+**Test object:** Dark/gray mug on desk, captured live from ZED Mini
+
+#### Mesh Quality: Excellent
+
+Hunyuan3D-2 produced a **semantically correct mug** from a single front-facing image:
+- **Hollow interior** — the inside of the mug is open, as expected for holding liquid
+- **Hollow handle** — the loop under the handle has a hole for gripping
+- **Cylindrical body** — correct proportions and shape
+- **Smooth surface** — the model also does a great job denoising; the mesh is clean and artifact-free despite the noisy/low-res input crop
+
+This is a massive improvement over TripoSR, which produced a solid boxy wedge. Hunyuan3D-2 has enough implicit semantic understanding from Objaverse training to infer functional object geometry from appearance alone — no text conditioning needed.
+
+#### Alignment: Poor
+
+- RANSAC fitness: 0.134, ICP fitness: 0.062
+- Scale factor: 0.0459 (Hunyuan3D canonical space is ~22x larger than real mug in meters)
+- Attempt 1: Clouds completely separated, wrong orientation
+- Attempt 2: Better overlap but still misaligned — cyan (Hunyuan3D) forms a ring, red (ZED partial) clustered in center
+- The alignment algorithm (FPFH + RANSAC + ICP) struggles with the large shape difference between full mesh (all sides) and partial cloud (front face only)
+
+### Screenshots
+
+#### Attempt 1
+![Hunyuan3D attempt 1](screenshots/HunYuan3D_attempt_1_with_error.png)
+- **Left (Mesh):** Top-down view of mug mesh — hollow interior clearly visible, handle with hole
+- **Center (Alignment):** RED = ZED partial, CYAN = Hunyuan3D — completely misaligned, different orientations
+- **Right (Input):** RGBA crop of mug with mask-isolated background
+
+#### Attempt 2
+![Hunyuan3D attempt 2](screenshots/HunYuan3D_attempt_2_with_no_error.png)
+- **Left (Mesh):** Angled view — cylindrical body, handle, smooth surface
+- **Center (Alignment):** Better overlap but still poor fit — cyan ring (full mug) doesn't align with red cluster (front face)
+- **Right (Input):** Cleaner crop with better mask isolation
+
+### Analysis
+
+#### Strengths
+1. **Implicit semantic understanding:** Despite being image-only (no text prompt), the model correctly infers that a mug should be hollow, have a graspable handle, and be cylindrical. This knowledge comes from training on 800K+ Objaverse objects.
+2. **Excellent denoising:** The output mesh is smooth and clean even from a noisy, low-resolution ZED crop. The diffusion process effectively denoises the input.
+3. **High-fidelity geometry:** 812K vertices, 1.6M faces — extremely detailed mesh with correct topology.
+
+#### Problems
+
+1. **Latency:** **~151 seconds per object** is far too slow for any real-time or near-real-time pipeline. Even as an async background task, this is impractical for a perception system that needs to handle multiple objects. For comparison: PoinTr was ~30ms, TripoSR was ~3.3s.
+
+2. **Output format mismatch:** Hunyuan3D outputs high-poly meshes with textures — beautiful for rendering but **not directly useful for robot manipulation**. The robotics pipeline needs point clouds or simple geometric primitives for grasp planning, collision checking, and motion planning. Converting 1.6M-face meshes to point clouds is wasteful — the mesh representation carries overhead (topology, UV maps, normals) that the robot doesn't need.
+
+3. **Alignment still unsolved:** FPFH + RANSAC + ICP doesn't reliably align the canonical-frame mesh to the camera-frame partial cloud. The full-vs-partial asymmetry (complete mesh vs. front-face-only scan) makes feature matching difficult.
+
+4. **VRAM pressure:** The model uses most of the 8GB VRAM during inference, requiring sequential execution (ZED capture → release GPU → Hunyuan3D → release GPU → visualization). Cannot run alongside real-time perception.
+
+### Future Direction: Finetuning
+
+If we decide to finetune using Hunyuan3D's model architecture, the ideal approach would be to **skip the polygon/mesh extraction layer entirely** and generate point clouds directly from the latent space. This would:
+- Eliminate the expensive volume decoding stage (~101s, 67% of total time)
+- Output a format directly usable by the robotics pipeline
+- Reduce VRAM usage (no marching cubes, no mesh storage)
+- Potentially allow much faster inference by targeting fewer output points (e.g., 8192 points vs. 812K vertices)
+
+### Conclusion
+
+Hunyuan3D-2 produces the **best mesh quality** of all models tested — semantically correct, smooth, and detailed. However, **151s latency** makes it completely impractical for the FUSE pipeline, even as a cached background task. The output format (high-poly mesh) is also mismatched with robotics needs (point clouds).
+
+**Status:** Best quality, but too slow and wrong output format. Promising as a finetuning base if the polygon layer is bypassed.
+
+---
+
+## Experiment 4: TBD
+
+(Next approach — retrieval-based, Shap-E, or Hunyuan3D finetuning)
