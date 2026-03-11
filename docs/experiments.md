@@ -170,33 +170,65 @@ TripoSR produces poor mesh quality on real ZED crops at 720p resolution. The pri
 ## Experiment 3: Hunyuan3D-2 (Image-to-3D) for Shape Completion
 
 **Date:** 2026-03-10
-**Goal:** Test Hunyuan3D-2 (Tencent) as a higher-quality replacement for TripoSR. Despite being image-only (no text conditioning), evaluate whether its larger model and training data produce semantically correct shapes.
+**Goal:** Test Hunyuan3D-2 (Tencent) as a higher-quality replacement for TripoSR. Despite being image-only (no text conditioning), evaluate whether its larger model and training data produce semantically correct shapes. Compare three variants: Full, Mini, and Turbo.
 
 ### Setup
 
-- **Model:** Hunyuan3D-2 (Tencent, 2024), DiT-based flow matching for 3D generation
+- **Model family:** Hunyuan3D-2 (Tencent, 2024), DiT-based flow matching for 3D generation
 - **Architecture:** DINOv2 image encoder + DiT diffusion transformer + VAE shape decoder + marching cubes mesh extraction
 - **Training data:** Objaverse (800K+ 3D objects)
-- **Input:** Single RGBA image crop (512x512), object isolated via YOLOE mask, no text prompt
-- **Output:** High-poly 3D mesh (812K vertices, 1.6M faces)
+- **Input:** Single RGBA image crop (512x512), object isolated via YOLOE mask, **no text prompt**
 - **Pipeline:** `Hunyuan3DDiTFlowMatchingPipeline` — shape generation only (no texture stage)
 - **Repo:** github.com/Tencent-Hunyuan/Hunyuan3D-2
-- **Model weights:** ~9.2GB (HuggingFace: tencent/Hunyuan3D-2)
 
-### Timing Breakdown (RTX 3070, 8GB VRAM)
+**Important note on input:** Hunyuan3D-2's shape generation pipeline **only accepts an image** — there is no text/prompt parameter in the API. We passed only the RGB crop with no text conditioning whatsoever. Despite this, the model correctly inferred that the object is a mug and generated functionally correct geometry (hollow interior, graspable handle). This means **semantic inference is already happening purely from visual features** — the DINOv2 encoder + diffusion model learned enough about object categories from Objaverse training to reconstruct semantically meaningful shapes from appearance alone.
 
-| Stage | Time |
-|-------|------|
-| Model loading (first run) | 24.4s |
-| Diffusion sampling (50 steps) | 46.8s (~0.94s/step) |
-| Volume decoding / mesh extraction (7134 chunks) | 101s |
-| Point sampling (8192 pts from mesh) | <0.1s |
-| FPFH + RANSAC + ICP alignment | ~2s |
-| **Total shape generation** | **~151s** |
+### Variants Tested
 
-### Results
+| Variant | Model ID | Subfolder | Weights | Params |
+|---------|----------|-----------|---------|--------|
+| **Full** | `tencent/Hunyuan3D-2` | `hunyuan3d-dit-v2-0` | ~9.2GB | Full size |
+| **Mini** | `tencent/Hunyuan3D-2mini` | `hunyuan3d-dit-v2-mini` | ~6.5GB | 0.6B |
+| **Turbo** | `tencent/Hunyuan3D-2mini` | `hunyuan3d-dit-v2-mini-turbo` | ~6.5GB | 0.6B (distilled) |
+
+```bash
+python test_hunyuan3d.py          # Full
+python test_hunyuan3d.py --mini   # Mini
+python test_hunyuan3d.py --turbo  # Turbo
+```
+
+### Comparison: Inference Time (RTX 3070, 8GB VRAM)
 
 **Test object:** Dark/gray mug on desk, captured live from ZED Mini
+
+| Stage | Full | Mini | Turbo |
+|-------|------|------|-------|
+| Model loading | 24.4s | 18.5s | 17.7s |
+| Diffusion sampling | 46.8s (50 steps, ~0.94s/step) | 9.0s (50 steps, ~0.18s/step) | 5.3s (8 steps, ~0.66s/step) |
+| Volume decoding / mesh extraction | 101s (7134 chunks) | ~75s (7134 chunks) | ~104s (7134 chunks) |
+| **Total shape generation** | **~151s** | **~87s** | **~109s** |
+| Output mesh | 812K verts, 1.6M faces | 791K verts, 1.58M faces | 703–862K verts, 1.4–1.7M faces |
+
+### Comparison: Mesh Quality
+
+| Aspect | Full | Mini | Turbo |
+|--------|------|------|-------|
+| Recognizable as mug | Yes | Yes (roughly) | Barely — more like a cup/bucket |
+| Hollow interior | Yes | Yes (attempted) | Yes |
+| Hollow handle (graspable) | Yes | No — malformed | No — handle gap closed/fused |
+| Surface smoothness | Excellent | Moderate | Poor — rough, bumpy surface |
+| Denoising quality | Excellent | Moderate | Poor — noisy mesh artifacts |
+
+### Comparison: Alignment to ZED Partial Cloud
+
+| Metric | Full | Mini | Turbo |
+|--------|------|------|-------|
+| Scale factor | 0.0459 | 0.044–0.046 | 0.047–0.048 |
+| RANSAC fitness | 0.134 | 0.255–0.259 | 0.231–0.241 |
+| ICP fitness | 0.062 | 0.126–0.192 | 0.152–0.173 |
+| Visual overlap | Poor | Moderate | Moderate |
+
+### Results: Full Model (Hunyuan3D-2)
 
 #### Mesh Quality: Excellent
 
@@ -206,29 +238,104 @@ Hunyuan3D-2 produced a **semantically correct mug** from a single front-facing i
 - **Cylindrical body** — correct proportions and shape
 - **Smooth surface** — the model also does a great job denoising; the mesh is clean and artifact-free despite the noisy/low-res input crop
 
-This is a massive improvement over TripoSR, which produced a solid boxy wedge. Hunyuan3D-2 has enough implicit semantic understanding from Objaverse training to infer functional object geometry from appearance alone — no text conditioning needed.
+This is a massive improvement over TripoSR, which produced a solid boxy wedge.
 
 #### Alignment: Poor
 
-- RANSAC fitness: 0.134, ICP fitness: 0.062
-- Scale factor: 0.0459 (Hunyuan3D canonical space is ~22x larger than real mug in meters)
 - Attempt 1: Clouds completely separated, wrong orientation
 - Attempt 2: Better overlap but still misaligned — cyan (Hunyuan3D) forms a ring, red (ZED partial) clustered in center
 - The alignment algorithm (FPFH + RANSAC + ICP) struggles with the large shape difference between full mesh (all sides) and partial cloud (front face only)
 
+### Results: Mini Model (Hunyuan3D-2mini)
+
+#### Inference Time: ~1.8x faster than Full
+
+Mini's diffusion sampling is **5.3x faster** (9s vs 47s), but volume decoding remains the bottleneck (~75s vs ~101s), limiting the overall speedup to ~1.8x.
+
+#### Mesh Quality: Recognizable but degraded
+
+Across two runs, the Mini model produces a shape that is **recognizably a mug** — the cylindrical body and hollow interior are present. However, the handle is **malformed in both attempts**:
+- **Run 1:** Handle is a thick, blocky protrusion fused to the body — no hole for gripping, more like a fin than a handle
+- **Run 2:** Handle is an angular wedge attached to the side — wrong proportions, no through-hole, not graspable
+
+The body geometry is rougher than the Full model — less smooth surfaces, more angular artifacts. The model clearly "knows" it's generating a mug (hollow interior, handle region) but lacks the capacity to produce fine geometric details like a proper handle loop.
+
+#### Alignment: Better than Full
+
+Surprisingly, Mini's alignment scores are consistently better than Full's (RANSAC 0.255–0.259 vs 0.134, ICP 0.126–0.192 vs 0.062). This may be because Mini's simpler geometry has fewer outlier points that confuse the registration algorithm.
+
+#### Screenshots
+
+##### Mini Run 1
+![Hunyuan3D Mini run 1](screenshots/HunYuan3D_mini_attempt_1_with_error.png)
+- **Left (Mesh):** Mug body visible but handle is a thick blocky protrusion — no hole, not graspable
+- **Center (Alignment):** RED = ZED partial, CYAN = Hunyuan3D Mini — moderate overlap on the body, but handle points scattered
+- **Right (Input):** RGBA crop of mug, clean mask isolation
+
+##### Mini Run 2
+![Hunyuan3D Mini run 2](screenshots/HunYuan3D_mini_attempt_2_with_error.png)
+- **Left (Mesh):** Mug body with angular wedge handle — wrong shape, no through-hole
+- **Center (Alignment):** Better overlap on the cylindrical body, handle region still misaligned
+- **Right (Input):** Same mug from slightly different capture
+
+### Results: Turbo Model (Hunyuan3D-2mini-turbo)
+
+#### Inference Time: Faster diffusion, slower volume decoding
+
+Turbo uses consistency distillation with only **8 diffusion steps** (vs 50 for Mini/Full), bringing diffusion time down to **5.3s** — the fastest of all three variants. However, volume decoding is **slower than Mini** (~104s vs ~75s), resulting in a total of **~109s** — faster than Full (151s) but slower than Mini (87s). The turbo latent may produce a more complex occupancy field that takes longer to decode.
+
+#### Mesh Quality: Worst of the three variants
+
+The Turbo model produces the **lowest quality meshes** of all Hunyuan3D variants tested:
+
+- **Run 1:** The mesh is recognizable as a mug-like shape with a hollow interior, but the handle is **completely fused** — the gap between the handle and the body is closed, creating a solid loop rather than a graspable handle. The surface has visible bumps and artifacts. The model failed to recognize the handle as a separate graspable feature.
+- **Run 2:** Quality is even worse — the mesh is a rough, bumpy bucket-like shape with heavy surface noise. The handle region is a solid wedge fused to the body. The surface artifacts suggest the 8-step consistency distillation produces noisier latents that the VAE decoder struggles to clean up.
+
+Both runs show that Turbo **fails to recognize the object as a mug** in the way that Full does. While Full produces a semantically correct mug (hollow interior, through-hole handle, smooth cylinder), Turbo produces a generic cup/bucket shape with a solid protrusion where the handle should be. The consistency distillation trades too much quality for speed.
+
+#### Alignment: Comparable to Mini
+
+Alignment scores (RANSAC 0.231–0.241, ICP 0.152–0.173) are similar to Mini's and significantly better than Full's. As with Mini, the simpler geometry may make registration easier, but the aligned shape doesn't match the actual object well.
+
+#### Screenshots
+
+##### Turbo Run 1
+![Hunyuan3D Turbo run 1](screenshots/HunYuan3D_turbo_attempt_1_with_error.png)
+- **Left (Mesh):** Mug-like shape but handle gap is completely closed/fused — no through-hole for gripping
+- **Center (Alignment):** RED = ZED partial, CYAN = Hunyuan3D Turbo — moderate overlap on the body
+- **Right (Input):** RGBA crop of mug, clear handle visible in input image
+
+##### Turbo Run 2
+![Hunyuan3D Turbo run 2](screenshots/HunYuan3D_turbo_attempt_2_with_error.png)
+- **Left (Mesh):** Rough, bumpy bucket-like shape — heavy surface noise, handle is a solid wedge
+- **Center (Alignment):** Partial overlap, but Turbo shape is clearly wrong proportions
+- **Right (Input):** Same mug from slightly different capture
+
 ### Screenshots
 
-#### Attempt 1
+#### Full Model — Attempt 1
 ![Hunyuan3D attempt 1](screenshots/HunYuan3D_attempt_1_with_error.png)
 - **Left (Mesh):** Top-down view of mug mesh — hollow interior clearly visible, handle with hole
 - **Center (Alignment):** RED = ZED partial, CYAN = Hunyuan3D — completely misaligned, different orientations
 - **Right (Input):** RGBA crop of mug with mask-isolated background
 
-#### Attempt 2
+#### Full Model — Attempt 2
 ![Hunyuan3D attempt 2](screenshots/HunYuan3D_attempt_2_with_no_error.png)
 - **Left (Mesh):** Angled view — cylindrical body, handle, smooth surface
 - **Center (Alignment):** Better overlap but still poor fit — cyan ring (full mug) doesn't align with red cluster (front face)
 - **Right (Input):** Cleaner crop with better mask isolation
+
+### Inference Time Comparison (All Models Tested)
+
+| Model | Diffusion / Inference | Mesh Extraction | Total | Speedup vs Full |
+|-------|----------------------|-----------------|-------|-----------------|
+| PoinTr (ShapeNet55) | ~30-50ms | N/A (point cloud) | **~40ms** | ~3800x |
+| TripoSR | ~0.7s | ~2.6s | **~3.3s** | ~46x |
+| Hunyuan3D-2 Mini | ~9s (50 steps) | ~75s (volume decode) | **~87s** | ~1.7x |
+| Hunyuan3D-2 Full | ~47s (50 steps) | ~101s (volume decode) | **~151s** | 1x (baseline) |
+| Hunyuan3D-2 Turbo | ~5.3s (8 steps) | ~104s (volume decode) | **~109s** | ~1.4x |
+
+**Key insight:** Volume decoding (marching cubes over 7134 chunks) is the dominant cost for Hunyuan3D variants, accounting for 67-86% of total time. Diffusion speedups from Mini (5.3x) are diluted by this fixed bottleneck. TripoSR is ~26x faster than Mini but produces much worse geometry. PoinTr is fastest but fails on real data due to domain gap.
 
 ### Analysis
 
@@ -239,7 +346,7 @@ This is a massive improvement over TripoSR, which produced a solid boxy wedge. H
 
 #### Problems
 
-1. **Latency:** **~151 seconds per object** is far too slow for any real-time or near-real-time pipeline. Even as an async background task, this is impractical for a perception system that needs to handle multiple objects. For comparison: PoinTr was ~30ms, TripoSR was ~3.3s.
+1. **Latency:** **~151 seconds per object** (full model) is far too slow for any real-time or near-real-time pipeline. Even as an async background task, this is impractical for a perception system that needs to handle multiple objects. For comparison: PoinTr was ~30ms, TripoSR was ~3.3s. Mini/Turbo variants may improve this.
 
 2. **Output format mismatch:** Hunyuan3D outputs high-poly meshes with textures — beautiful for rendering but **not directly useful for robot manipulation**. The robotics pipeline needs point clouds or simple geometric primitives for grasp planning, collision checking, and motion planning. Converting 1.6M-face meshes to point clouds is wasteful — the mesh representation carries overhead (topology, UV maps, normals) that the robot doesn't need.
 
@@ -250,16 +357,23 @@ This is a massive improvement over TripoSR, which produced a solid boxy wedge. H
 ### Future Direction: Finetuning
 
 If we decide to finetune using Hunyuan3D's model architecture, the ideal approach would be to **skip the polygon/mesh extraction layer entirely** and generate point clouds directly from the latent space. This would:
-- Eliminate the expensive volume decoding stage (~101s, 67% of total time)
+- Eliminate the expensive volume decoding stage (~101s, 67% of total time for full model)
 - Output a format directly usable by the robotics pipeline
 - Reduce VRAM usage (no marching cubes, no mesh storage)
 - Potentially allow much faster inference by targeting fewer output points (e.g., 8192 points vs. 812K vertices)
 
 ### Conclusion
 
-Hunyuan3D-2 produces the **best mesh quality** of all models tested — semantically correct, smooth, and detailed. However, **151s latency** makes it completely impractical for the FUSE pipeline, even as a cached background task. The output format (high-poly mesh) is also mismatched with robotics needs (point clouds).
+Hunyuan3D-2 (full) produces the **best mesh quality** of all models tested — semantically correct, smooth, and detailed. However, **151s latency** makes it completely impractical for the FUSE pipeline, even as a cached background task. The output format (high-poly mesh) is also mismatched with robotics needs (point clouds).
 
-**Status:** Best quality, but too slow and wrong output format. Promising as a finetuning base if the polygon layer is bypassed.
+**Mini** (87s) is the fastest variant overall but produces degraded handle geometry — malformed, no through-hole. **Turbo** (109s) is paradoxically slower than Mini despite fewer diffusion steps, because its volume decoding takes ~40% longer. Turbo also has the worst mesh quality — rough surfaces, heavy artifacts, and the model fails to recognize the handle as a graspable feature, closing the gap entirely.
+
+**Ranking by quality:** Full >> Mini > Turbo
+**Ranking by speed:** Mini (87s) > Turbo (109s) > Full (151s)
+
+None of the variants are practical for real-time use. Volume decoding (marching cubes over 7134 chunks) dominates all variants at 75–104s, making diffusion speedups largely irrelevant.
+
+**Status:** Best quality (Full), but too slow and wrong output format. Mini is the best speed/quality tradeoff but still impractical at 87s. Promising as a finetuning base if the polygon layer is bypassed.
 
 ---
 

@@ -30,6 +30,30 @@ pip install numpy                      # Array operations
 2. Verify camera is detected: `python -c "import pyzed.sl as sl; cam = sl.Camera(); print(cam.open())"`
 3. Record SVO files for offline dev: use ZED Explorer or SDK recording API
 
+## Running Experiments
+
+### Hunyuan3D-2 (Image-to-3D shape generation)
+
+```bash
+cd src/
+
+# Full model (Hunyuan3D-2, ~151s per object)
+python test_hunyuan3d.py
+
+# Mini model (0.6B params, faster)
+python test_hunyuan3d.py --mini
+
+# Mini turbo (fastest variant)
+python test_hunyuan3d.py --turbo
+```
+
+### TripoSR (Image-to-3D)
+
+```bash
+cd src/
+python test_triposr.py
+```
+
 ## Offline Development
 
 Record `.svo` files from the ZED camera for development without the camera plugged in. This allows testing the full pipeline on recorded data.

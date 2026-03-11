@@ -154,18 +154,34 @@ def main():
         partial_pts = np.load(f"{data_dir}/mug_partial.npy")
         print(f"Loaded crop: {image.size}, partial: {partial_pts.shape}")
 
+    import gc
+    gc.collect()
     torch.cuda.empty_cache()
 
-    # Step 2: Load Hunyuan3D-2 shape generation pipeline (no texture needed)
-    print("\nLoading Hunyuan3D-2 shape generation...")
+    # Step 2: Load Hunyuan3D shape generation pipeline (no texture needed)
+    # Use mini variant (0.6B params) for faster inference, or full model
+    use_mini = '--mini' in sys.argv
+    use_turbo = '--turbo' in sys.argv
+    if use_mini or use_turbo:
+        model_id = 'tencent/Hunyuan3D-2mini'
+        if use_turbo:
+            subfolder = 'hunyuan3d-dit-v2-mini-turbo'
+        else:
+            subfolder = 'hunyuan3d-dit-v2-mini'
+    else:
+        model_id = 'tencent/Hunyuan3D-2'
+        subfolder = 'hunyuan3d-dit-v2-0'
+    print(f"\nLoading {model_id} ({subfolder})...")
     from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline
 
     t0 = time.time()
-    pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained('tencent/Hunyuan3D-2')
+    pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
+        model_id, subfolder=subfolder)
     print(f"Model loaded: {time.time() - t0:.1f}s")
 
     # Step 3: Generate 3D shape with progress tracking
-    num_steps = 50
+    # Turbo uses consistency distillation — needs far fewer steps (4-8 vs 50)
+    num_steps = 8 if use_turbo else 50
     gen_start = time.time()
 
     def progress_callback(step, timestep, outputs):
@@ -185,7 +201,8 @@ def main():
     print(f"Shape generation: {dt:.2f}s")
     print(f"Mesh: {len(mesh.vertices)} verts, {len(mesh.faces)} faces")
 
-    mesh.export(f"{data_dir}/mug_hunyuan3d.glb")
+    suffix = "_turbo" if use_turbo else ("_mini" if use_mini else "")
+    mesh.export(f"{data_dir}/mug_hunyuan3d{suffix}.glb")
 
     # Step 4: Sample points from mesh
     sampled_pts, _ = trimesh.sample.sample_surface(mesh, count=8192)
@@ -223,7 +240,8 @@ def main():
     o3d_mesh.compute_vertex_normals()
 
     vis_mesh = o3d.visualization.Visualizer()
-    vis_mesh.create_window("Hunyuan3D Mesh (canonical)", width=600, height=600, left=450)
+    variant = "Mini" if use_mini else "Full"
+    vis_mesh.create_window(f"Hunyuan3D {variant} Mesh (canonical)", width=600, height=600, left=450)
     vis_mesh.add_geometry(o3d_mesh)
     vis_mesh.get_render_option().mesh_show_back_face = True
 
