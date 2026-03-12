@@ -44,6 +44,39 @@ class FusedObject:
 
 Detect and locate 5 household objects on a table (mug, phone, cup, fork, bottle). Centroid error < 5cm.
 
+## Source Structure
+
+```
+src/
+├── core/          # Camera, detector, pipeline, FusedObject
+│   ├── camera.py         # ZEDCamera wrapper
+│   ├── detector.py       # YOLOE Seg inference
+│   ├── fused_object.py   # FusedObject dataclass
+│   └── pipeline.py       # Main perception pipeline
+├── cloud/         # Cloud inference (Modal A100)
+│   └── hunyuan3d.py      # Hunyuan3D Full deployment
+├── demos/         # Phase demo scripts
+│   ├── phase1_camera.py      # ZED camera feed
+│   ├── phase2_detection.py   # 2D detection overlay
+│   ├── phase3_extraction.py  # 3D point cloud extraction
+│   └── phase4_pipeline.py    # Full pipeline
+└── tests/
+    └── test_hunyuan3d_cloud.py
+```
+
+## Custom Agents
+
+Defined in `.claude/agents/`. Invoked automatically or on request.
+
+| Agent | Purpose |
+|---|---|
+| `pipeline-tester` | Run demos, validate FusedObject output, check FPS |
+| `cloud-deployer` | Deploy Hunyuan3D to Modal, test timing |
+| `docs-updater` | Keep docs/ in sync with code changes |
+| `researcher` | Research ML models/techniques (web search) |
+| `code-reviewer` | Review changes for correctness and patterns |
+| `test-runner` | Run and analyze test results |
+
 ## Workflow Rules
 
 - Update `docs/` folder after major milestones and major additions to the project
@@ -53,6 +86,7 @@ Detect and locate 5 household objects on a table (mug, phone, cup, fork, bottle)
 - Record SVO files from ZED for offline development
 - OpenCV for 2D overlay, Open3D for 3D visualization (real-time)
 - Metrics: IoU (2D boxes), centroid error in cm (3D)
+- Demos accept optional `--svo <path>` for offline testing
 
 ## V2 Backlog
 
