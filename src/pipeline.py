@@ -39,18 +39,12 @@ def remove_outliers(points, nb_neighbors=20, std_ratio=1.5):
 
 
 class FUSEPipeline:
-    def __init__(self, classes, svo_path=None, model_size="11s", confidence=0.3,
-                 enable_completion=False):
+    def __init__(self, classes, svo_path=None, model_size="11s", confidence=0.3):
         self.classes = classes
         self.cam = ZEDCamera(svo_path=svo_path)
         self.detector = Detector(model_size=model_size, confidence=confidence)
         self.detector.set_classes(classes)
         self.pc_mat = sl.Mat()
-
-        # Shape completion (lazy-loaded)
-        self.enable_completion = enable_completion
-        self._completer = None
-        self._completion_cache = {}  # label -> (centroid, completed_points, completed_centroid)
 
     def start(self):
         self.cam.open()
@@ -60,14 +54,6 @@ class FUSEPipeline:
 
     def get_calibration(self):
         return self.cam.get_calibration()
-
-    @property
-    def completer(self):
-        """Lazy-load ShapeCompleter on first use."""
-        if self._completer is None:
-            from shape_completer import ShapeCompleter
-            self._completer = ShapeCompleter()
-        return self._completer
 
     def process_frame(self, skip_scene=False):
         """Grab a frame, run detection + 3D extraction.
@@ -120,10 +106,6 @@ class FUSEPipeline:
                 color=color,
             ))
 
-        # Shape completion (if enabled)
-        if self.enable_completion:
-            self._run_completion(objects)
-
         # Full scene point cloud — reuse already-retrieved pc_data
         if skip_scene:
             scene_xyz = np.zeros((0, 3), dtype=np.float32)
@@ -132,31 +114,6 @@ class FUSEPipeline:
             scene_xyz, scene_rgb = self.cam.get_point_cloud(pc_data=pc_data)
 
         return bgr, objects, scene_xyz, scene_rgb
-
-    def _run_completion(self, objects):
-        """Run shape completion on detected objects with caching."""
-        CACHE_THRESHOLD = 0.03  # 3cm — skip recomputation if centroid moved less
-
-        for obj in objects:
-            if obj.source != "fused" or not self.completer.can_complete(obj.label):
-                continue
-
-            # Check cache: skip if centroid hasn't moved much
-            if obj.label in self._completion_cache:
-                cached_centroid, cached_pts, cached_comp_centroid = self._completion_cache[obj.label]
-                dist = np.linalg.norm(np.array(obj.centroid) - np.array(cached_centroid))
-                if dist < CACHE_THRESHOLD:
-                    obj.completed_points_3d = cached_pts
-                    obj.completed_centroid = cached_comp_centroid
-                    continue
-
-            completed = self.completer.complete(obj.points_3d)
-            if completed is not None:
-                obj.completed_points_3d = completed
-                obj.completed_centroid = tuple(completed.mean(axis=0))
-                self._completion_cache[obj.label] = (
-                    obj.centroid, completed, obj.completed_centroid
-                )
 
     def __enter__(self):
         self.start()
