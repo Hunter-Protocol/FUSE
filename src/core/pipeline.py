@@ -3,9 +3,9 @@
 import numpy as np
 import open3d as o3d
 import pyzed.sl as sl
-from camera import ZEDCamera
-from detector import Detector
-from fused_object import FusedObject, LABEL_COLORS, DEFAULT_LABEL_COLOR
+from core.camera import ZEDCamera
+from core.detector import Detector
+from core.fused_object import FusedObject, LABEL_COLORS, DEFAULT_LABEL_COLOR
 
 
 def remove_outliers(points, nb_neighbors=20, std_ratio=1.5):

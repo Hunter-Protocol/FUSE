@@ -4,7 +4,7 @@ import sys
 import cv2
 import numpy as np
 import open3d as o3d
-from camera import ZEDCamera
+from core.camera import ZEDCamera
 
 
 def main():

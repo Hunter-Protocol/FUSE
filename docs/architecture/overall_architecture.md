@@ -99,7 +99,7 @@ The ZED point cloud is **organized** — each pixel `(row, col)` in the left RGB
 
 ## Denoising: Two-Stage Outlier Removal
 
-Implementation: `remove_outliers()` in `src/pipeline.py`
+Implementation: `remove_outliers()` in `src/core/pipeline.py`
 
 ### The Problem: Depth Bleeding at Mask Edges
 
@@ -234,9 +234,10 @@ Camera frame (ZED default) for v1. Robot base / world frame deferred to v2.
 
 | File | Role |
 |------|------|
-| `src/camera.py` | ZED Mini interface — RGB, depth, point cloud |
-| `src/detector.py` | YOLOE Seg — open-vocab detection + segmentation |
-| `src/pipeline.py` | FUSEPipeline — orchestrates all steps, includes `remove_outliers()` |
-| `src/fused_object.py` | FusedObject dataclass + label color mapping |
-| `src/cloud_hunyuan3d.py` | Modal endpoint for Hunyuan3D Full (see modal_architecture.md) |
-| `src/phase[1-5]_demo.py` | Progressive demo scripts for each pipeline phase |
+| `src/core/camera.py` | ZED Mini interface — RGB, depth, point cloud |
+| `src/core/detector.py` | YOLOE Seg — open-vocab detection + segmentation |
+| `src/core/pipeline.py` | FUSEPipeline — orchestrates all steps, includes `remove_outliers()` |
+| `src/core/fused_object.py` | FusedObject dataclass + label color mapping |
+| `src/cloud/hunyuan3d.py` | Modal endpoint for Hunyuan3D Full (see modal_architecture.md) |
+| `src/demos/phase{1-4}_*.py` | Progressive demo scripts for each pipeline phase |
+| `src/tests/test_hunyuan3d_cloud.py` | Cloud integration test |

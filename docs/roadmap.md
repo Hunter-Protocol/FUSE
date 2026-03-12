@@ -49,7 +49,7 @@
 - Deployed Hunyuan3D Full on Modal serverless (A100 80GB)
 - ~28s/object (5.5x faster than local RTX 3070)
 - Integration test: YOLOE crop → Modal API → Hunyuan3D Full → mesh → sample points → align to partial cloud
-- Files: `src/cloud_hunyuan3d.py`, `src/test_hunyuan3d_cloud.py`
+- Files: `src/cloud/hunyuan3d.py`, `src/tests/test_hunyuan3d_cloud.py`
 
 ### Phase 9: Cleanup & Documentation — 2026-03-12 ✓
 - Removed source files for all 5 rejected models

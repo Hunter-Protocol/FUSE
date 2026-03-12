@@ -1,7 +1,7 @@
 """Modal serverless endpoint: run Hunyuan3D-2 Full image-to-3D on a cloud A100.
 
-Deploy:   modal deploy cloud_hunyuan3d.py
-Test:     modal run cloud_hunyuan3d.py
+Deploy:   modal deploy cloud/hunyuan3d.py
+Test:     modal run cloud/hunyuan3d.py
 """
 
 import modal

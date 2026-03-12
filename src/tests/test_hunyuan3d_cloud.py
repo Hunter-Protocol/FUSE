@@ -7,7 +7,7 @@ import numpy as np
 import cv2
 from PIL import Image
 
-from pipeline import FUSEPipeline
+from core.pipeline import FUSEPipeline
 
 
 def capture_mug_crop():

@@ -148,8 +148,8 @@ Remove any one requirement and the model fails. Full analysis: `docs/experiments
 
 ### Files
 
-- `src/cloud_hunyuan3d.py` — Modal app definition, container image, `Hunyuan3DModel` class with `generate()` method
-- `src/test_hunyuan3d_cloud.py` — Integration test: ZED crop → cloud endpoint → align → visualize
+- `src/cloud/hunyuan3d.py` — Modal app definition, container image, `Hunyuan3DModel` class with `generate()` method
+- `src/tests/test_hunyuan3d_cloud.py` — Integration test: ZED crop → cloud endpoint → align → visualize
 
 ---
 
@@ -252,7 +252,7 @@ Learnable queries (8192 × D) + 3D latent (3072 × 64)
 #### Phased Approach
 
 **Phase 1: Latent dataset generation**
-- Modify `cloud_hunyuan3d.py` to save 3D latents alongside mesh outputs
+- Modify `cloud/hunyuan3d.py` to save 3D latents alongside mesh outputs
 - Run on ~1,000 diverse objects from Objaverse
 - Validate latent quality by decoding a few with the existing VAE
 
@@ -263,7 +263,7 @@ Learnable queries (8192 × D) + 3D latent (3072 × 64)
 
 **Phase 3: Integration**
 - Replace VAE decoder + marching cubes in the Modal endpoint
-- Update `test_hunyuan3d_cloud.py` to consume point clouds directly
+- Update `tests/test_hunyuan3d_cloud.py` to consume point clouds directly
 - Benchmark end-to-end latency improvement
 
 **Phase 4: Viewpoint-aware training (stretch)**

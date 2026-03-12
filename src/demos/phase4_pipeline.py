@@ -5,7 +5,7 @@ import time
 import cv2
 import numpy as np
 import open3d as o3d
-from pipeline import FUSEPipeline
+from core.pipeline import FUSEPipeline
 
 
 def bgr_color(rgb_color):

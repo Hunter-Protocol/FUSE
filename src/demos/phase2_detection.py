@@ -2,8 +2,8 @@
 
 import sys
 import cv2
-from camera import ZEDCamera
-from detector import Detector
+from core.camera import ZEDCamera
+from core.detector import Detector
 
 # Colors for each class (BGR for OpenCV)
 COLORS = {

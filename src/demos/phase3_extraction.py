@@ -4,8 +4,8 @@ import sys
 import cv2
 import numpy as np
 import open3d as o3d
-from camera import ZEDCamera
-from detector import Detector
+from core.camera import ZEDCamera
+from core.detector import Detector
 
 # Colors per class: (R, G, B) normalized for Open3D, (B, G, R) for OpenCV
 CLASS_COLORS = {

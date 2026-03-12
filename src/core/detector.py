@@ -1,12 +1,15 @@
 """Open-vocabulary detection + segmentation using YOLOE."""
 
+import os
 import numpy as np
 from ultralytics import YOLOE
+
+WEIGHTS_DIR = os.path.join(os.path.dirname(__file__), "..", "weights")
 
 
 class Detector:
     def __init__(self, model_size="11s", confidence=0.3):
-        self.model = YOLOE(f"yoloe-{model_size}-seg.pt")
+        self.model = YOLOE(os.path.join(WEIGHTS_DIR, f"yoloe-{model_size}-seg.pt"))
         self.confidence = confidence
 
     def set_classes(self, classes):

@@ -42,7 +42,7 @@ modal token set          # authenticate with Modal account
 ### Deploy the Hunyuan3D Full endpoint
 
 ```bash
-modal deploy src/cloud_hunyuan3d.py
+modal deploy src/cloud/hunyuan3d.py
 ```
 
 This deploys a serverless A100 80GB endpoint. It scales to zero when idle (~$0.02/inference when used).
@@ -50,7 +50,7 @@ This deploys a serverless A100 80GB endpoint. It scales to zero when idle (~$0.0
 ### Run cloud integration test
 
 ```bash
-python src/test_hunyuan3d_cloud.py
+cd src && python -m tests.test_hunyuan3d_cloud
 ```
 
 This sends a mug crop to the cloud endpoint, receives the generated mesh, samples points, aligns to the partial cloud, and visualizes the result. First run will be slow (~100-170s cold start), subsequent runs ~30-35s.
