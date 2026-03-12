@@ -703,7 +703,8 @@ InstantMesh produces **the worst semantic quality** of all models tested for the
 | **InstantMesh** | A100 80GB | ~9s | 83–105s (cold) | **Poor** | No | No | No — wrong shapes |
 | Hunyuan3D Mini | RTX 3070 | ~87s | ~87s | Medium | Degraded | Yes | No — handle malformed |
 | Hunyuan3D Turbo | RTX 3070 | ~109s | ~109s | Poor | No | Yes | No — rough, fused handle |
-| **Hunyuan3D Full** | RTX 3070 | ~151s | ~151s | **Best** | **Yes** | **Yes** | Best quality, too slow |
+| **Hunyuan3D Full** | RTX 3070 | ~151s | ~151s | **Best** | **Yes** | **Yes** | Too slow locally |
+| **Hunyuan3D Full** | **A100 80GB** | **~28s** | **~103s (cold)** | **Best** | **Yes** | **Yes** | **Best overall — 5.5x faster** |
 
 ### Key Finding: Why Only Hunyuan3D Full Understands "This Is a Mug"
 
@@ -761,11 +762,16 @@ Hunyuan3D Mini and Turbo have the same architecture as Full but with fewer param
 
 #### Run Details
 
-| Metric | Run 1 | Run 2 |
-|--------|-------|-------|
-| GPU generation time | 27.51s | 28.74s |
-| Mesh verts | 655,141 | 767,314 |
-| Mesh faces | 1,310,284 | 1,534,636 |
+| Metric | `modal run` Run 1 | `modal run` Run 2 | Integration Test Run 1 |
+|--------|-------------------|-------------------|----------------------|
+| GPU generation time | 27.51s | 28.74s | 28.58s |
+| End-to-end latency | — | — | 102.59s (cold) |
+| Network overhead | — | — | 74.01s |
+| Mesh verts | 655,141 | 767,314 | 631,776 |
+| Mesh faces | 1,310,284 | 1,534,636 | 1,263,568 |
+| RANSAC fitness | — | — | 0.239 |
+| ICP fitness | — | — | 0.124 |
+| ICP RMSE | — | — | 0.0018m |
 
 ### Analysis: Why the A100 Is 5.5x Faster
 
