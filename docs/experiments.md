@@ -733,8 +733,10 @@ Hunyuan3D Mini and Turbo have the same architecture as Full but with fewer param
 ### Next Steps
 
 1. ~~**Run Hunyuan3D Full on cloud A100**~~ — Done (Experiment 6)
-2. **Try TRELLIS with 50+ sampling steps** — may approach Hunyuan3D quality while staying much faster.
-3. **Try TripoSG or Unique3D** — newer models that may have better semantic understanding.
+2. ~~**Evaluate TRELLIS, InstantMesh, Hunyuan3D Mini/Turbo**~~ — Done. All rejected (see experiments 3-5). Only Hunyuan3D Full viable.
+3. **Optimize inference speed** — address cold start latency (keep-alive or pre-warming), explore batched inference.
+4. **Improve alignment quality** — FPFH+RANSAC+ICP still poor for full-vs-partial clouds. Explore learned registration or feature matching.
+5. **Try newer models as they release** — TripoSG, Unique3D, or future Hunyuan3D versions may offer better speed/quality tradeoff.
 
 ---
 

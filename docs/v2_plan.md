@@ -205,6 +205,37 @@ Live demo with parallel threads:
 | `CLAUDE.md` | Modified | Updated architecture and V2 backlog |
 | `.gitignore` | Modified | Added data/, models/, *.pth, *.npy |
 
+## Phase 3: Cloud 3D Generation (Hunyuan3D Full on Modal A100)
+
+**Date:** 2026-03-11
+**Status: DONE**
+
+After evaluating 6 image-to-3D models (PoinTr, TripoSR, TRELLIS, InstantMesh, Hunyuan3D Mini/Turbo, Hunyuan3D Full), Hunyuan3D Full was chosen as the only model that produces semantically correct shapes (hollow interior, through-hole handle). Running on Modal A100 80GB achieves ~28s/object (5.5x faster than local RTX 3070).
+
+### Pipeline
+
+1. YOLOE Seg detects object → crop RGBA image (512x512)
+2. Upload crop to Modal A100 endpoint
+3. Hunyuan3D Full: DINOv2 encode → DiT denoise (50 steps, ~9s) → VAE decode (~17s) → mesh
+4. Download mesh, sample points, align to partial cloud
+
+### Files
+
+- `src/cloud_hunyuan3d.py` — Modal serverless endpoint
+- `src/test_hunyuan3d_cloud.py` — Integration test (ZED crop → cloud → align → visualize)
+
+### Key Results
+
+| Metric | Value |
+|--------|-------|
+| GPU generation time | ~28s |
+| Warm end-to-end | ~30-35s |
+| Cold start | ~100-170s |
+| Cost per inference | ~$0.02 |
+| Semantic quality | Best of 6 models tested |
+
+See `docs/experiments.md` for full evaluation of all 6 models.
+
 ## Future Work (V2 continued)
 
 - Evaluate AdaPoinTr when weights become available (checkpoint already downloaded: `AdaPoinTr_ps55.pth`)

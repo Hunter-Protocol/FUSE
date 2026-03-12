@@ -8,7 +8,8 @@ Real-time 2D/3D perception pipeline: ZED stereo camera -> unified per-object out
 ZED Mini (720p, SDK v5.2.1)
   ├── RGB ──> YOLOE Seg (open-vocab, pretrained) ──> label + 2D box + pixel mask
   ├── Depth/Point Cloud ──> mask projection ──> per-object 3D point cluster
-  ├── (v2) Shape Completion ──> PoinTr (ShapeNet55) ──> completed 3D shape (8192 pts)
+  ├── Shape Completion ──> PoinTr (ShapeNet55) ──> completed 3D shape (8192 pts)
+  ├── Cloud 3D Generation ──> YOLOE crop ──> Modal A100 ──> Hunyuan3D Full ──> mesh + points
   └── FusedObject per object (label + box + 3D cluster + centroid + completed shape)
 ```
 
@@ -20,7 +21,7 @@ ZED Mini (720p, SDK v5.2.1)
 - **3D extraction:** YOLOE Seg pixel masks → project masked pixels into 3D via ZED point cloud → per-object 3D cluster
 - **No separate 3D model for v1:** PointNet++ dropped — pretrained 3D models don't cover small household objects. Single YOLOE Seg model handles both 2D detection and 3D extraction.
 - **Coordinate frame:** Camera frame
-- **Shape completion:** Deferred to v2
+- **Cloud 3D generation:** Hunyuan3D Full on Modal A100 (~28s/object, best semantic quality). Chosen over local GPU (too slow) and 5 other models (poor quality). See `docs/experiments.md`.
 - **Branches run async** (parallel threads), target 15 FPS, ~100ms latency
 - **Frame strategy:** Grab latest from ZED, drop stale
 
@@ -57,6 +58,7 @@ Detect and locate 5 household objects on a table (mug, phone, cup, fork, bottle)
 ## V2 Backlog
 
 - ~~Shape completion~~ -- Done (PoinTr ShapeNet55, ~29ms/object, cached)
+- ~~Cloud 3D generation~~ -- Done (Hunyuan3D Full on Modal A100, ~28s/object)
 - Dedicated 3D segmentation model (Mask3D or PointNet++)
 - Upgrade to AdaPoinTr (when weights available)
 - TensorRT optimization

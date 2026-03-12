@@ -30,29 +30,30 @@ pip install numpy                      # Array operations
 2. Verify camera is detected: `python -c "import pyzed.sl as sl; cam = sl.Camera(); print(cam.open())"`
 3. Record SVO files for offline dev: use ZED Explorer or SDK recording API
 
-## Running Experiments
+## Cloud Inference Setup (Modal + Hunyuan3D Full)
 
-### Hunyuan3D-2 (Image-to-3D shape generation)
-
-```bash
-cd src/
-
-# Full model (Hunyuan3D-2, ~151s per object)
-python test_hunyuan3d.py
-
-# Mini model (0.6B params, faster)
-python test_hunyuan3d.py --mini
-
-# Mini turbo (fastest variant)
-python test_hunyuan3d.py --turbo
-```
-
-### TripoSR (Image-to-3D)
+### Prerequisites
 
 ```bash
-cd src/
-python test_triposr.py
+pip install modal
+modal token set          # authenticate with Modal account
 ```
+
+### Deploy the Hunyuan3D Full endpoint
+
+```bash
+modal deploy src/cloud_hunyuan3d.py
+```
+
+This deploys a serverless A100 80GB endpoint. It scales to zero when idle (~$0.02/inference when used).
+
+### Run cloud integration test
+
+```bash
+python src/test_hunyuan3d_cloud.py
+```
+
+This sends a mug crop to the cloud endpoint, receives the generated mesh, samples points, aligns to the partial cloud, and visualizes the result. First run will be slow (~100-170s cold start), subsequent runs ~30-35s.
 
 ## Offline Development
 

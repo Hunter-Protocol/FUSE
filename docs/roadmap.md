@@ -34,14 +34,21 @@
 - Third Open3D window showing completed shapes (lighter color = completed points)
 - Toggle completion on/off with 'c' key at runtime
 
-### Phase 6: TensorRT Optimization
+### Phase 6: Cloud 3D Generation (Hunyuan3D Full) ✓
+- Evaluated 6 image-to-3D models (PoinTr, TripoSR, TRELLIS, InstantMesh, Hunyuan3D Mini/Turbo, Hunyuan3D Full)
+- Only Hunyuan3D Full produces semantically correct shapes (hollow interior, through-hole handle)
+- Deployed on Modal serverless (A100 80GB): ~28s/object, 5.5x faster than local RTX 3070
+- Integration: YOLOE crop → Modal API → Hunyuan3D Full → mesh → sample points → align to partial cloud
+- Files: `src/cloud_hunyuan3d.py`, `src/test_hunyuan3d_cloud.py`
+
+### Phase 7: TensorRT Optimization
 - Convert YOLOE and/or PoinTr to TensorRT for faster inference
 - Target: 20+ FPS with completion enabled
 
-### Phase 7: ROS2 Integration
+### Phase 8: ROS2 Integration
 - Publish FusedObject as ROS2 messages
 - Robot base / world coordinate frame transform
 
-### Phase 8: Fine-tuning
+### Phase 9: Fine-tuning
 - Fine-tune PoinTr on target environment objects
 - Evaluate AdaPoinTr when weights become available

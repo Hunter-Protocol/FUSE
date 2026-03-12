@@ -1,9 +1,9 @@
-"""Phase 2 demo: ZED camera + YOLO World 2D detection with bounding boxes."""
+"""Phase 2 demo: ZED camera + YOLOE 2D detection with bounding boxes."""
 
 import sys
 import cv2
 from camera import ZEDCamera
-from detector_2d import Detector2D
+from detector import Detector
 
 # Colors for each class (BGR for OpenCV)
 COLORS = {
@@ -36,8 +36,8 @@ def main():
     svo_path = sys.argv[1] if len(sys.argv) > 1 else None
     classes = ["mug", "phone", "cup", "fork", "bottle"]
 
-    print("Loading YOLO World model...")
-    detector = Detector2D(model_size="s", confidence=0.3)
+    print("Loading YOLOE model...")
+    detector = Detector(model_size="11s", confidence=0.3)
     detector.set_classes(classes)
     print(f"Detecting: {classes}")
 

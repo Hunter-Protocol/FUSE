@@ -6,7 +6,8 @@
 ZED Mini (720p, SDK v5.2.1)
   ├── RGB ──> YOLOE Seg (open-vocab, pretrained) ──> label + 2D box + pixel mask
   ├── Depth/Point Cloud ──> mask projection ──> per-object 3D point cluster
-  ├── (v2) Shape Completion ──> PoinTr ──> completed 3D shape (8192 pts)
+  ├── Shape Completion ──> PoinTr (ShapeNet55) ──> completed 3D shape (8192 pts)
+  ├── Cloud 3D Generation ──> YOLOE crop ──> Modal A100 ──> Hunyuan3D Full ──> mesh + points
   └── FusedObject per object (label + box + 3D cluster + centroid + completed shape)
 ```
 
@@ -158,6 +159,44 @@ Objects without a ShapeNet mapping skip completion gracefully (`completed_points
 | All cached (static scene) | ~0ms | ~16 (unchanged) |
 | 1-2 objects move | ~29-58ms | ~12-14 |
 | 5 new objects (worst case, one-time) | ~145ms | ~7 |
+
+## Cloud 3D Generation (Hunyuan3D Full)
+
+### Architecture
+
+The cloud inference path runs Hunyuan3D Full on Modal serverless (A100 80GB) for high-quality image-to-3D mesh generation:
+
+```
+Local (RTX 3070)                          Cloud (Modal A100 80GB)
+─────────────────                         ──────────────────────────
+ZED RGB frame
+  → YOLOE Seg detect
+  → Crop object (RGBA, 512x512)
+  → Upload crop via Modal API ──────────→ Hunyuan3D Full inference
+                                            → DINOv2 encode image
+                                            → DiT denoise (50 steps, ~9s)
+                                            → VAE decode volume (~17s)
+                                            → Marching cubes → mesh
+  ← Download .glb mesh ←─────────────── Return mesh (~600K verts)
+  → Sample points from mesh
+  → Align to partial cloud (ICP)
+  → Visualize
+```
+
+### Timing Breakdown (A100 80GB)
+
+| Stage | Time | Notes |
+|-------|------|-------|
+| Diffusion sampling (50 steps) | ~9s | ~5.6 it/s on A100 |
+| Volume decoding (7134 chunks) | ~17s | ~420 it/s on A100 |
+| **Total GPU generation** | **~28s** | 5.5x faster than RTX 3070 |
+| Cold start (container spin-up) | ~100-170s | One-time after idle |
+| Warm end-to-end | ~30-35s | Including network overhead |
+
+### Files
+
+- `src/cloud_hunyuan3d.py` — Modal endpoint (container def + inference function)
+- `src/test_hunyuan3d_cloud.py` — Integration test (ZED crop → cloud → align → visualize)
 
 ## Coordinate Frame
 

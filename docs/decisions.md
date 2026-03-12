@@ -31,4 +31,10 @@ Rationale behind major v1 decisions. See `brainstorm.md` for full exploration.
 | Framework | Standalone (no ROS2) | Avoids node/topic complexity for v1 |
 | Inference | PyTorch | Both models run natively; TensorRT in v2 |
 | Branch execution | Async (parallel threads) | Cuts latency vs sequential |
-| Shape completion | Deferred to v2 | VRAM pressure, upstream must work first |
+
+## Cloud 3D Generation
+| Decision | Choice | Why |
+|----------|--------|-----|
+| GPU strategy | Cloud (Modal A100) over local GPU | RTX 3070 too slow for Hunyuan3D Full (151s vs 28s on A100). New hardware not justified for research phase. Modal serverless scales to zero when idle (~$0.02/inference). |
+| 3D generation model | Hunyuan3D Full | Only model of 6 tested that produces semantically correct shapes. Requires direct image conditioning + global-attention denoiser (DiT) + sufficient capacity/steps. See `docs/experiments.md`. |
+| Rejected models | TripoSR, TRELLIS, InstantMesh, Hunyuan3D Mini/Turbo | TripoSR: solid blobs. TRELLIS: inconsistent quality. InstantMesh: wrong shapes (intermediate bottleneck). Mini/Turbo: insufficient capacity (fused handles). |
