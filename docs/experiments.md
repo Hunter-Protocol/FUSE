@@ -804,3 +804,47 @@ Hunyuan3D Full on A100 runs in **~28s** — a **5.5x speedup** over local RTX 30
 - **Cold start caveat:** First invocation after idle takes 150-200s (container spin-up + model download). Warm containers respond in ~30-35s. For production, keep-alive or pre-warming would be needed
 
 **Status:** Best overall model for the FUSE pipeline. 28s cloud inference with correct semantic understanding. The cold start latency is the main remaining challenge for interactive use.
+
+---
+
+## Experiment 8: Hunyuan3D v2.1 (3B DiT) vs v2.0 (1.1B DiT)
+
+**Date:** 2026-03-13
+**Goal:** Evaluate whether Hunyuan3D v2.1 (3B params, MoE layers) improves mesh quality over v2.0 on the same mug test image.
+
+### Setup
+
+- **v2.0:** `tencent/Hunyuan3D-2`, subfolder `hunyuan3d-dit-v2-0`, 1.1B params, `hy3dgen` package
+- **v2.1:** `tencent/Hunyuan3D-2.1`, subfolder `hunyuan3d-dit-v2-1`, 3.0B params (MoE), `hy3dshape` package
+- **Hardware:** Modal A100 80GB for both
+- **Input:** Same mug crop (512x512 RGBA, from ZED capture)
+- **Settings:** 50 diffusion steps, default parameters
+- **File:** `src/cloud/hunyuan3d_v21.py`
+
+### Timing Results
+
+| Metric | v2.0 (1.1B) | v2.1 (3B) |
+|--------|------------|-----------|
+| Diffusion speed | ~5.6 it/s | ~4.4 it/s |
+| Diffusion time (50 steps) | ~9s | ~11.4s |
+| Volume decoding (7134 chunks) | ~420 it/s (~17s) | ~414-420 it/s (~17-18s) |
+| **Total GPU generation** | **~27s** | **~31-33s** |
+
+v2.1 is **4-6s slower** due to the larger DiT model. Volume decoding bottleneck is identical.
+
+### Quality Results
+
+| Metric | v2.0 | v2.1 |
+|--------|------|------|
+| Vertices | ~815K | ~210-295K |
+| Faces | ~1.6M | ~420-590K |
+| Point cloud quality | Good — correct handle, hollow interior | Comparable — similar topology |
+| Visual comparison | Clear mug shape | Clear mug shape, similar detail |
+
+v2.1 produces significantly **smaller meshes** (~3x fewer vertices) but point cloud quality is visually comparable. Both correctly capture handle topology and hollow interior.
+
+### Conclusion
+
+**v2.1 offers no meaningful quality improvement over v2.0 for our use case, while being ~15-20% slower.** The 3B model with MoE layers does not produce noticeably better geometry for household objects (mugs, cups, bottles). The smaller mesh output from v2.1 suggests a different resolution/extraction setting, not necessarily better quality.
+
+**Decision:** Stay with Hunyuan3D v2.0 as the baseline for the point cloud decoder fine-tuning (Phase 10). The v2.0 architecture is well-understood, faster, and produces equivalent quality. No reason to increase complexity and cost by switching to v2.1.
