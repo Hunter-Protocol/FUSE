@@ -234,3 +234,78 @@ Tested v2.1 (3B, MoE with 6 MoE layers, 8 experts, top-2 routing, DINOv2-Large 1
 - **Decision:** Stay with v2.0 as baseline. The extra capacity doesn't help for single-object completion.
 
 See `docs/experiments.md` Experiment 8 for full comparison data.
+
+---
+
+## Simulation + VLA: State of the Field
+
+**Date:** 2026-03-13
+
+### How Simulation Is Used With VLAs Today
+
+Surveyed the intersection of physics simulation and VLAs. The work falls into four categories — none of which do what we're proposing.
+
+#### 1. Sim for Training VLAs (most common)
+
+| System | Year | What it does |
+|--------|------|-------------|
+| VLA-RFT | 2025 | Runs VLA-proposed actions in MuJoCo/Isaac Sim, uses success/failure as reward signal to fine-tune VLA via RL. Sim-in-the-loop during *training*, not inference. |
+| DreamGen | 2025 | Trains a video world model in sim, generates synthetic rollouts to train VLA policies. Sim → world model → synthetic data → better VLA. |
+| MultiGen | 2025 | Multimodal generation *within* simulation to create diverse training scenarios for real-world policies. |
+| GR00T N1 / N1.6 (NVIDIA) | 2025 | Full sim-to-real pipeline for humanoid VLAs. Train in Isaac Sim, deploy to real robot. Classic sim-for-training at VLA scale. |
+
+#### 2. Learned World Models Inside VLAs (not physics sim)
+
+| System | Venue | What it does |
+|--------|-------|-------------|
+| 3D-VLA | ICML 2024 | Internal "world model" predicts future 3D states. Learned predictor, not physics — hallucinates plausible futures, no contact force verification. |
+| WorldVLA | 2025 | Autoregressive action + world model in one architecture. Predicts next state as part of action generation. Same limitation: learned, not physics-based. |
+| VLAW | 2026 | Iteratively co-trains VLA and world model so they improve each other. World model as mental rehearsal. |
+| IRL-VLA | 2025 | "Reward world model" scores VLA actions during training. |
+
+#### 3. Reasoning Before Acting (closest to verification)
+
+| System | Venue | What it does |
+|--------|-------|-------------|
+| ThinkAct | NeurIPS 2025 | Visual chain-of-thought in learned latent space before outputting actions. Mental simulation, not physics. |
+| CoT-VLA | CVPR 2025 | Visual chain-of-thought reasoning. Plans in image space before acting. |
+
+#### 4. Sim for Evaluation
+
+- **NVIDIA Isaac Lab-Arena** — Standardized sim environment for *evaluating* VLA policies, not verifying individual actions at inference time.
+
+### The Gap: No Physics-Sim-in-the-Loop at Inference Time
+
+**Nobody does physics simulation verification at inference time.** Every existing system either:
+1. Uses sim for training/fine-tuning (VLA-RFT, GR00T)
+2. Uses a learned world model as a soft proxy for sim (3D-VLA, WorldVLA, ThinkAct)
+3. Uses sim for evaluation benchmarks (Isaac Lab-Arena)
+
+No published system takes a VLA's proposed action, runs it through MuJoCo/Isaac to check contact forces and grasp stability, and then decides whether to execute.
+
+The closest is **VLA-RFT**, which does sim verification but only during training to generate reward signals — not at test time. And none of them feed *complete* 3D geometry into the simulation — they all work with whatever the sensors observe.
+
+### Why This Matters for FUSE
+
+FUSE's three-stage system proposes exactly this missing piece:
+
+```
+VLA proposes action → build sim scene from FUSE's complete geometry
+→ test action in MuJoCo → check contact forces, stability, collisions
+→ execute if stable, re-plan if not
+```
+
+This requires two things no existing system has:
+1. **Complete 3D geometry** to build an accurate sim scene (FUSE provides this via Hunyuan3D)
+2. **Fast enough sim** to verify actions in real-time (MuJoCo runs at kHz — not the bottleneck)
+
+The bottleneck is perception (getting complete geometry fast enough), which is exactly what Phase 10's decoder optimization addresses. If we get Hunyuan3D down to ~10s, the sim verification step is essentially free (<1ms in MuJoCo).
+
+### Implications for the Thesis
+
+The "simulate before you act" loop at inference time for dexterous manipulation with foundation-model-completed geometry is genuinely novel. It combines:
+- Foundation model 3D completion (nobody else does this for VLAs)
+- Physics verification at inference time (nobody else does this for VLAs)
+- Complete geometry in the sim scene (nobody else has this)
+
+This isn't just a systems contribution — it's a new paradigm for VLA execution that addresses a fundamental limitation of current approaches: they learn physics implicitly from data rather than verifying it explicitly through simulation.
