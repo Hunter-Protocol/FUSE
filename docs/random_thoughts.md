@@ -309,3 +309,99 @@ The "simulate before you act" loop at inference time for dexterous manipulation 
 - Complete geometry in the sim scene (nobody else has this)
 
 This isn't just a systems contribution — it's a new paradigm for VLA execution that addresses a fundamental limitation of current approaches: they learn physics implicitly from data rather than verifying it explicitly through simulation.
+
+---
+
+## How Existing Systems Handle Partial Point Clouds
+
+**Date:** 2026-03-16
+
+### The Standard Downstream Pipeline
+
+Almost every robotic grasping system follows the same pattern:
+
+```
+Depth Camera (RealSense, ZED, etc.)
+  → Raw partial point cloud (single-view, noisy, holes)
+  → Segmentation (project 2D masks to 3D)
+  → Per-object partial cloud
+  → Grasp planner directly on partial data
+  → Execute (hope for the best)
+```
+
+### What Each System Does With Partial Data
+
+| System | What happens to the partial cloud |
+|--------|----------------------------------|
+| GraspNet-1Billion | Partial cloud → 6-DOF grasp prediction directly. No completion. |
+| Contact-GraspNet | Partial scene cloud → sample grasp candidates on visible surfaces only |
+| AnyDexGrasp | Partial cloud → contact-centric grasp repr → hand-specific grasp. No completion. |
+| DexGraspNet 2.0 | Partial cloud → depth restoration (clean up noise) → diffusion grasp model. Still partial. |
+| OK-Robot | iPhone LiDAR scan → point cloud map → open-vocab query → grasp. No per-object completion. |
+| RT-2 / OpenVLA | No point cloud — pure 2D pixels → action |
+| 3D-VLA | Multi-view reconstruction → 3D tokens. Better than single-view but still only what cameras see. |
+| PointVLA | Raw depth cloud injected into VLA. No processing beyond basic filtering. |
+
+### How They Cope Without Complete Geometry
+
+1. **Training on partial data** — models learn to infer reasonable grasps from partial observations
+2. **Conservative grasp selection** — prefer top-down pinches on visible, stable surfaces
+3. **Multiple attempts** — if the first grasp fails, re-observe and retry
+
+### What Gets Lost
+
+- Handle backsides (can't plan a wrap-around grasp you only see from the front)
+- Object bottoms (can't plan a scoop grasp under a bowl)
+- Interior geometry (can't distinguish hollow mug from solid cylinder)
+- Thin structures (fork tines, pen caps — often missing from depth entirely)
+
+### Only Two Exceptions (task-trained completion)
+
+Only **3DSGrasp** (+30pp) and **PCF-Grasp** (+24pp) add a completion step before grasp planning, and both use small category-specific networks — not foundation models. They validate that completion helps but don't generalize to novel objects.
+
+---
+
+## FUSE's Foundation Model vs 3D-VLA's Foundation Model
+
+**Date:** 2026-03-16
+
+Both FUSE and 3D-VLA use foundation models, but for completely different purposes.
+
+### 3D-VLA: Foundation Model as Decision-Maker
+
+3D-VLA uses a language/vision foundation model (LLaMA-based LLM fine-tuned with 3D tokens). The FM is the **decision-maker** — it takes 3D scene representations + language instructions and outputs actions.
+
+```
+3D-VLA:  RGB images → 3D scene encoder → 3D tokens → LLM (foundation model) → action
+         The FM decides WHAT TO DO
+```
+
+### FUSE: Foundation Model as Geometry Generator
+
+FUSE uses a generative 3D foundation model (Hunyuan3D Full — DiT trained on millions of 3D objects). The FM is the **perception layer** — it takes a single RGB image and generates complete 3D geometry that didn't exist in the sensor data.
+
+```
+FUSE:    RGB image → Hunyuan3D (foundation model) → complete mesh/point cloud → downstream
+         The FM creates geometry THAT WASN'T OBSERVED
+```
+
+### Comparison
+
+| | 3D-VLA's FM | FUSE's FM |
+|---|---|---|
+| Type | LLM (language + vision + action) | Generative 3D (image → mesh) |
+| Role | Decision-making (what action to take) | Perception (what the object looks like) |
+| Input | 3D scene tokens + language | Single RGB crop |
+| Output | Robot actions | Complete 3D geometry |
+| What it adds | Reasoning about goals + actions | Geometry the camera can't see |
+| 3D representation | Scene-level features (from what cameras observed) | Per-object complete shape (including occluded surfaces) |
+
+### The Key Insight
+
+3D-VLA's FM is smart about **what to do** but blind about **what's there**. Its 3D tokens are derived from camera observations — if the back of the mug isn't visible, the tokens don't encode it.
+
+FUSE's FM doesn't decide actions but **hallucinates complete geometry** from a single view — handle backside, hollow interior, bottom surface — all from the model's learned prior over millions of 3D objects.
+
+### They're Complementary
+
+In principle, you could feed FUSE's completed geometry into 3D-VLA's scene encoder and get a system that both **sees complete objects** and **reasons about actions** — which neither does alone today.
