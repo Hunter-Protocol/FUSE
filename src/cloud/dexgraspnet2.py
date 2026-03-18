@@ -19,14 +19,16 @@ app = modal.App("fuse-dexgraspnet2")
 
 dexgraspnet_image = (
     modal.Image.from_registry(
-        "nvidia/cuda:11.8.0-devel-ubuntu22.04", add_python="3.8"
+        "nvidia/cuda:11.7.1-devel-ubuntu22.04", add_python="3.10"
     )
     .apt_install("git", "libgl1-mesa-glx", "libglib2.0-0", "libgomp1",
-                 "build-essential", "libopenblas-dev", "libosmesa6-dev",
-                 "libgl1-mesa-dev", "libglfw3", "patchelf")
+                 "build-essential", "g++", "libopenblas-dev", "libosmesa6-dev",
+                 "libgl1-mesa-dev", "libglfw3", "patchelf", "ninja-build")
+    # Pin setuptools FIRST before anything else
+    .run_commands("pip install 'setuptools<70' wheel")
     .pip_install(
         "torch==2.0.1", "torchvision==0.15.2",
-        index_url="https://download.pytorch.org/whl/cu118",
+        index_url="https://download.pytorch.org/whl/cu117",
     )
     .pip_install(
         "numpy==1.24.4", "trimesh", "scipy", "pillow",
@@ -35,11 +37,11 @@ dexgraspnet_image = (
         "ikpy", "rich", "coacd", "diffusers",
         "open3d==0.17.0", "pyrender", "opencv-python-headless",
     )
-    # Install MinkowskiEngine from source (needs CUDA 11.8 match)
+    # Install MinkowskiEngine from source (CUDA 11.7 matches)
     .run_commands(
         "git clone https://github.com/NVIDIA/MinkowskiEngine.git /opt/MinkowskiEngine",
         "cd /opt/MinkowskiEngine && "
-        "CUDA_HOME=/usr/local/cuda-11.8 "
+        "CXX=g++ CC=gcc CUDA_HOME=/usr/local/cuda-11.7 "
         "python setup.py install --blas=openblas",
     )
     # Install nflows
@@ -47,29 +49,23 @@ dexgraspnet_image = (
         "git clone https://github.com/nkolot/nflows.git /opt/nflows",
         "cd /opt/nflows && pip install -e .",
     )
-    # Install TorchSDF and torchprimitivesdf
+    # Install PyTorch3D from GitHub source
     .run_commands(
-        "git clone https://github.com/wrc042/TorchSDF.git /opt/TorchSDF",
-        "cd /opt/TorchSDF && pip install -e .",
-        "git clone https://github.com/mzhmxzh/torchprimitivesdf.git /opt/torchprimitivesdf",
-        "cd /opt/torchprimitivesdf && pip install -e .",
-    )
-    # Install PyTorch3D
-    .run_commands(
-        "pip install 'pytorch3d @ https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/py38_cu118_pyt201/pytorch3d-0.7.5-cp38-cp38-linux_x86_64.whl'",
+        "pip install fvcore iopath",
+        "git clone https://github.com/facebookresearch/pytorch3d.git /opt/pytorch3d",
+        "cd /opt/pytorch3d && "
+        "CXX=g++ CC=gcc CUDA_HOME=/usr/local/cuda-11.7 "
+        "TORCH_CUDA_ARCH_LIST='7.0;7.5;8.0;8.6' "
+        "FORCE_CUDA=1 pip install --no-build-isolation .",
     )
     # Clone DexGraspNet2 and download checkpoint
     .run_commands(
         "git clone https://github.com/PKU-EPIC/DexGraspNet2.git /opt/DexGraspNet2",
     )
+    # Checkpoint will be downloaded at runtime if not present
+    # HuggingFace repo may require auth — handle at runtime
     .run_commands(
-        "python -c \""
-        "from huggingface_hub import hf_hub_download; "
-        "import os; "
-        "os.makedirs('/opt/DexGraspNet2/experiments/dex_ours/ckpt', exist_ok=True); "
-        "hf_hub_download('lhrlhr/DexGraspNet2.0', 'experiments/dex_ours/ckpt/ckpt_50000.pth', "
-        "  local_dir='/opt/DexGraspNet2'); "
-        "\"",
+        "mkdir -p /opt/DexGraspNet2/experiments/dex_ours/ckpt",
     )
     .env({
         "PYTHONPATH": "/opt/DexGraspNet2",
@@ -250,11 +246,32 @@ class DexGraspNet2Model:
         sys.path.insert(0, '/opt/DexGraspNet2')
         os.chdir('/opt/DexGraspNet2')
 
+        # Download checkpoint if not present
+        ckpt_path = 'experiments/dex_ours/ckpt/ckpt_50000.pth'
+        if not os.path.exists(ckpt_path):
+            print("Downloading DexGraspNet 2.0 checkpoint...")
+            try:
+                from huggingface_hub import hf_hub_download
+                hf_hub_download(
+                    'lhrlhr/DexGraspNet2.0',
+                    'experiments/dex_ours/ckpt/ckpt_50000.pth',
+                    local_dir='/opt/DexGraspNet2',
+                    repo_type='dataset',
+                )
+            except Exception as e:
+                print(f"HuggingFace download failed: {e}")
+                print("Trying alternative download...")
+                # Try as model repo instead of dataset
+                hf_hub_download(
+                    'lhrlhr/DexGraspNet2.0',
+                    'experiments/dex_ours/ckpt/ckpt_50000.pth',
+                    local_dir='/opt/DexGraspNet2',
+                )
+
         from src.utils.robot_model import RobotModel
         from src.utils.config import ckpt_to_config
         from src.network.model import get_model
 
-        ckpt_path = 'experiments/dex_ours/ckpt/ckpt_50000.pth'
         urdf_path = 'robot_models/urdf/leap_hand_simplified.urdf'
         meta_path = 'robot_models/meta/leap_hand/meta.yaml'
 
@@ -264,7 +281,7 @@ class DexGraspNet2Model:
         self.model = get_model(self.config.model)
         self.model.config.voxel_size = self.config.data.voxel_size
 
-        ckpt = torch.load(ckpt_path, map_location='cpu')
+        ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=False)
         self.model.load_state_dict(ckpt['model'], strict=False)
         self.model.to('cuda:0')
         self.model.eval()
