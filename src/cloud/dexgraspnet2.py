@@ -34,15 +34,17 @@ dexgraspnet_image = (
         "numpy==1.24.4", "trimesh", "scipy", "pillow",
         "huggingface_hub", "safetensors", "einops",
         "tqdm", "transforms3d", "urdf_parser_py",
-        "ikpy", "rich", "coacd", "diffusers",
+        "ikpy", "rich", "coacd", "diffusers==0.21.4", "huggingface_hub==0.23.0",
         "open3d==0.17.0", "pyrender", "opencv-python-headless",
     )
-    # Install MinkowskiEngine from source (CUDA 11.7 matches)
+    # Install MinkowskiEngine from source with GPU (needs CUDA at build time)
     .run_commands(
         "git clone https://github.com/NVIDIA/MinkowskiEngine.git /opt/MinkowskiEngine",
         "cd /opt/MinkowskiEngine && "
         "CXX=g++ CC=gcc CUDA_HOME=/usr/local/cuda-11.7 "
-        "python setup.py install --blas=openblas",
+        "TORCH_CUDA_ARCH_LIST='7.0;7.5;8.0;8.6' "
+        "python setup.py install --blas=openblas --force_cuda",
+        gpu="any",
     )
     # Install nflows
     .run_commands(
@@ -89,6 +91,11 @@ dexgraspnet_image = (
         "shutil.copy('/opt/DexGraspNet2/configs/network/train_dex_ours.yaml', "
         "            '/opt/DexGraspNet2/experiments/dex_ours/config.yaml'); "
         "\"",
+    )
+    # Patch robot_model.py to skip torchprimitivesdf import (not needed for inference)
+    .run_commands(
+        "sed -i 's/from torchprimitivesdf import/# from torchprimitivesdf import/' "
+        "/opt/DexGraspNet2/src/utils/robot_model.py",
     )
     .env({
         "PYTHONPATH": "/opt/DexGraspNet2",
@@ -254,7 +261,7 @@ def build_network_input(vertices, faces, num_views=8):
 
 @app.cls(
     image=dexgraspnet_image,
-    gpu="a100-80gb",
+    gpu="a10g",  # A10G is cheaper and has shorter queue than A100
     timeout=600,
     scaledown_window=60,
 )
@@ -270,10 +277,17 @@ class DexGraspNet2Model:
         sys.path.insert(0, '/opt/DexGraspNet2')
         os.chdir('/opt/DexGraspNet2')
 
-        # Find checkpoint
-        ckpt_candidates = glob.glob('experiments/**/ckpt_50000.pth', recursive=True)
+        # Find checkpoint — may be in DexGraspNet2.0-ckpts/OURS/ or experiments/
+        ckpt_candidates = (
+            glob.glob('experiments/**/ckpt_50000.pth', recursive=True) +
+            glob.glob('DexGraspNet2.0-ckpts/OURS/**/ckpt_50000.pth', recursive=True) +
+            glob.glob('/opt/DexGraspNet2/**/OURS/**/ckpt_50000.pth', recursive=True)
+        )
         if not ckpt_candidates:
-            raise FileNotFoundError("No checkpoint found! Check image build.")
+            # List what we have for debugging
+            all_pths = glob.glob('/opt/DexGraspNet2/**/*.pth', recursive=True)
+            print(f"Found {len(all_pths)} .pth files: {all_pths[:5]}")
+            raise FileNotFoundError("No OURS checkpoint found! Check image build.")
         ckpt_path = ckpt_candidates[0]
         print(f"Using checkpoint: {ckpt_path}")
 
