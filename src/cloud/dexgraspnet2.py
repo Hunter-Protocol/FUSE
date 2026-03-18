@@ -62,10 +62,33 @@ dexgraspnet_image = (
     .run_commands(
         "git clone https://github.com/PKU-EPIC/DexGraspNet2.git /opt/DexGraspNet2",
     )
-    # Checkpoint will be downloaded at runtime if not present
-    # HuggingFace repo may require auth — handle at runtime
+    # Download and extract checkpoint from HuggingFace
     .run_commands(
-        "mkdir -p /opt/DexGraspNet2/experiments/dex_ours/ckpt",
+        "pip install huggingface_hub",
+        "python -c \""
+        "from huggingface_hub import hf_hub_download; "
+        "path = hf_hub_download('lhrlhr/DexGraspNet2.0', 'DexGraspNet2.0-ckpts.tar', repo_type='dataset'); "
+        "import tarfile, os; "
+        "tar = tarfile.open(path); "
+        "names = tar.getnames(); "
+        "print('Tar contents (first 20):'); "
+        "[print(f'  {n}') for n in names[:20]]; "
+        "tar.extractall('/opt/DexGraspNet2/'); "
+        "tar.close(); "
+        "print('Extracted to /opt/DexGraspNet2/'); "
+        "import glob; "
+        "pths = glob.glob('/opt/DexGraspNet2/**/*.pth', recursive=True); "
+        "print(f'Found {len(pths)} .pth files:'); "
+        "[print(f'  {f}') for f in pths]; "
+        "# Symlink OURS checkpoint to expected path; "
+        "os.makedirs('/opt/DexGraspNet2/experiments/dex_ours/ckpt', exist_ok=True); "
+        "os.symlink('/opt/DexGraspNet2/DexGraspNet2.0-ckpts/OURS/ckpt/ckpt_50000.pth', "
+        "           '/opt/DexGraspNet2/experiments/dex_ours/ckpt/ckpt_50000.pth'); "
+        "# Also copy the config from the repo; "
+        "import shutil; "
+        "shutil.copy('/opt/DexGraspNet2/configs/network/train_dex_ours.yaml', "
+        "            '/opt/DexGraspNet2/experiments/dex_ours/config.yaml'); "
+        "\"",
     )
     .env({
         "PYTHONPATH": "/opt/DexGraspNet2",
@@ -241,32 +264,18 @@ class DexGraspNet2Model:
         """Load DexGraspNet 2.0 model."""
         import sys
         import os
+        import glob
         import torch
 
         sys.path.insert(0, '/opt/DexGraspNet2')
         os.chdir('/opt/DexGraspNet2')
 
-        # Download checkpoint if not present
-        ckpt_path = 'experiments/dex_ours/ckpt/ckpt_50000.pth'
-        if not os.path.exists(ckpt_path):
-            print("Downloading DexGraspNet 2.0 checkpoint...")
-            try:
-                from huggingface_hub import hf_hub_download
-                hf_hub_download(
-                    'lhrlhr/DexGraspNet2.0',
-                    'experiments/dex_ours/ckpt/ckpt_50000.pth',
-                    local_dir='/opt/DexGraspNet2',
-                    repo_type='dataset',
-                )
-            except Exception as e:
-                print(f"HuggingFace download failed: {e}")
-                print("Trying alternative download...")
-                # Try as model repo instead of dataset
-                hf_hub_download(
-                    'lhrlhr/DexGraspNet2.0',
-                    'experiments/dex_ours/ckpt/ckpt_50000.pth',
-                    local_dir='/opt/DexGraspNet2',
-                )
+        # Find checkpoint
+        ckpt_candidates = glob.glob('experiments/**/ckpt_50000.pth', recursive=True)
+        if not ckpt_candidates:
+            raise FileNotFoundError("No checkpoint found! Check image build.")
+        ckpt_path = ckpt_candidates[0]
+        print(f"Using checkpoint: {ckpt_path}")
 
         from src.utils.robot_model import RobotModel
         from src.utils.config import ckpt_to_config
@@ -393,21 +402,36 @@ class DexGraspNet2Model:
 def main():
     """Test: run DexGraspNet 2.0 on saved Hunyuan3D mesh."""
     import numpy as np
+    import trimesh
 
     data_dir = "/home/hunter/Desktop/FUSE/data"
 
-    # Load mesh
-    mesh_file = f"{data_dir}/mug_hunyuan3d_mesh.npz"
+    # Load mesh and decimate for fast transfer
+    mesh_file = f"{data_dir}/meshes/mug_complete.obj"
     try:
-        mesh_data = np.load(mesh_file)
-        vertices = mesh_data['vertices']
-        faces = mesh_data['faces']
+        mesh = trimesh.load(mesh_file, force='mesh')
+        print(f"Original mesh: {len(mesh.vertices)} verts, {len(mesh.faces)} faces")
+
+        # Decimate large meshes for fast JSON serialization
+        if len(mesh.faces) > 50000:
+            # Use open3d for decimation (more reliable than trimesh)
+            import open3d as o3d
+            o3d_mesh = o3d.geometry.TriangleMesh()
+            o3d_mesh.vertices = o3d.utility.Vector3dVector(mesh.vertices)
+            o3d_mesh.triangles = o3d.utility.Vector3iVector(mesh.faces)
+            o3d_mesh = o3d_mesh.simplify_quadric_decimation(target_number_of_triangles=50000)
+            vertices = np.asarray(o3d_mesh.vertices, dtype=np.float32)
+            faces = np.asarray(o3d_mesh.triangles, dtype=np.int32)
+            print(f"Decimated to: {len(vertices)} verts, {len(faces)} faces")
+        else:
+            vertices = np.array(mesh.vertices, dtype=np.float32)
+            faces = np.array(mesh.faces, dtype=np.int32)
     except FileNotFoundError:
         print(f"No mesh file at {mesh_file}")
         print("Run save_mesh.py first to get mesh from Hunyuan3D")
         return
 
-    print(f"Mesh: {len(vertices)} verts, {len(faces)} faces")
+    print(f"Sending mesh: {len(vertices)} verts, {len(faces)} faces")
 
     model = DexGraspNet2Model()
     result = model.predict_grasps.remote(
