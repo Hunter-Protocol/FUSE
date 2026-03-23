@@ -23,6 +23,13 @@ import numpy as np
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 DEMO_OBJECTS = ["mug", "cup", "fork"]
 
+# Descriptive YOLOE class names (same as demo_vc.py)
+YOLOE_LABEL_MAP = {
+    "mug":  "coffee mug",
+    "cup":  "transparent cup",
+    "fork": "fork",
+}
+
 
 def detect_and_save(object_label, svo_path=None):
     """Run pipeline, find the target object, save crop + partial clouds.
@@ -33,7 +40,8 @@ def detect_and_save(object_label, svo_path=None):
     import pyzed.sl as sl
     from core.pipeline import FUSEPipeline
 
-    classes = [object_label]
+    yoloe_class = YOLOE_LABEL_MAP.get(object_label, object_label)
+    classes = [yoloe_class]
     obj_dir = DATA_DIR / object_label
     obj_dir.mkdir(parents=True, exist_ok=True)
 
@@ -51,7 +59,7 @@ def detect_and_save(object_label, svo_path=None):
             if bgr is None:
                 continue
             for obj in objects:
-                if obj.label == object_label and obj.source == "fused":
+                if obj.label == yoloe_class and obj.source == "fused":
                     if best_obj is None or obj.num_points > best_obj.num_points:
                         best_obj = obj
                         best_bgr = bgr.copy()

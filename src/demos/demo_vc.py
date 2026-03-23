@@ -30,6 +30,15 @@ from core.fused_object import LABEL_COLORS, DEFAULT_LABEL_COLOR
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 DEMO_OBJECTS = ["mug", "cup", "fork"]
 
+# Descriptive YOLOE class names to disambiguate similar objects in CLIP space
+# Maps: YOLOE class name -> our short label (used for data dirs, colors, etc.)
+YOLOE_CLASS_MAP = {
+    "coffee mug":      "mug",
+    "transparent cup":  "cup",
+    "fork":            "fork",
+}
+YOLOE_CLASSES = list(YOLOE_CLASS_MAP.keys())
+
 # Info panel dimensions
 PANEL_W = 400
 PANEL_H = 600
@@ -224,6 +233,17 @@ def draw_detections(frame, objects):
     return frame
 
 
+def remap_labels(objects):
+    """Remap YOLOE descriptive class names to short labels (e.g. 'coffee mug' -> 'mug').
+
+    Also updates the color field to match the remapped label.
+    """
+    for obj in objects:
+        short = YOLOE_CLASS_MAP.get(obj.label, obj.label)
+        obj.label = short
+        obj.color = LABEL_COLORS.get(short, DEFAULT_LABEL_COLOR)
+
+
 # ---------------------------------------------------------------------------
 # Open3D helpers
 # ---------------------------------------------------------------------------
@@ -395,7 +415,7 @@ class VCDemo:
         from core.pipeline import FUSEPipeline
 
         available = list(self.objects.keys())
-        classes = DEMO_OBJECTS  # detect all even if not all have data
+        classes = YOLOE_CLASSES
 
         # Open3D: all-object noisy point cloud
         vis = o3d.visualization.Visualizer()
@@ -436,6 +456,9 @@ class VCDemo:
                     if self.svo_path:
                         break
                     continue
+
+                # Remap "coffee mug" -> "mug", etc.
+                remap_labels(detected)
 
                 # Draw detections with colored bounding boxes
                 frame = draw_detections(bgr, detected)
