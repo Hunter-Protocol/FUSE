@@ -41,7 +41,7 @@ def detect_and_save(object_label, svo_path=None):
     print(f"Detecting: {object_label}")
     print(f"{'='*50}")
 
-    with FUSEPipeline(classes, svo_path=svo_path) as pipe:
+    with FUSEPipeline(classes, svo_path=svo_path, model_size="11m") as pipe:
         best_obj = None
         best_bgr = None
         best_raw_points = None

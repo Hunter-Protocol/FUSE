@@ -426,7 +426,7 @@ class VCDemo:
         input_thread = threading.Thread(target=ask_input, daemon=True)
         input_thread.start()
 
-        with FUSEPipeline(classes, svo_path=self.svo_path) as pipe:
+        with FUSEPipeline(classes, svo_path=self.svo_path, model_size="11m") as pipe:
             fps = 0.0
             prev_time = time.time()
 
