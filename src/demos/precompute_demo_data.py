@@ -25,7 +25,12 @@ DEMO_OBJECTS = ["mug", "cup", "fork"]
 
 
 def detect_and_save(object_label, svo_path=None):
-    """Run pipeline, find the target object, save crop + partial cloud."""
+    """Run pipeline, find the target object, save crop + partial clouds.
+
+    Saves both the filtered partial cloud (used for alignment) and the raw
+    noisy cloud (pre-outlier-removal, for VC demo visualization).
+    """
+    import pyzed.sl as sl
     from core.pipeline import FUSEPipeline
 
     classes = [object_label]
@@ -39,6 +44,7 @@ def detect_and_save(object_label, svo_path=None):
     with FUSEPipeline(classes, svo_path=svo_path) as pipe:
         best_obj = None
         best_bgr = None
+        best_raw_points = None
         # Try multiple frames to get a good detection
         for attempt in range(30):
             bgr, objects, _, _ = pipe.process_frame(skip_scene=True)
@@ -49,6 +55,11 @@ def detect_and_save(object_label, svo_path=None):
                     if best_obj is None or obj.num_points > best_obj.num_points:
                         best_obj = obj
                         best_bgr = bgr.copy()
+                        # Extract raw (unfiltered) points from the mask
+                        pc_data = pipe.pc_mat.get_data()
+                        xyz = pc_data[:, :, :3][obj.mask]
+                        valid = np.isfinite(xyz).all(axis=1)
+                        best_raw_points = xyz[valid].astype(np.float32)
             if best_obj and best_obj.num_points > 500:
                 break
 
@@ -56,7 +67,8 @@ def detect_and_save(object_label, svo_path=None):
         print(f"ERROR: Could not detect '{object_label}' — ensure it's visible to the camera.")
         return None
 
-    print(f"Detected {object_label}: {best_obj.num_points} points, conf={best_obj.confidence:.2f}")
+    print(f"Detected {object_label}: {best_obj.num_points} filtered pts, "
+          f"{len(best_raw_points)} raw pts, conf={best_obj.confidence:.2f}")
 
     # Save crop (YOLOE bounding box region)
     x1, y1, x2, y2 = best_obj.box_2d
@@ -69,10 +81,15 @@ def detect_and_save(object_label, svo_path=None):
     cv2.imwrite(str(crop_path), crop)
     print(f"Saved crop: {crop_path}")
 
-    # Save partial point cloud
+    # Save filtered partial cloud (for alignment)
     partial_path = obj_dir / "partial.npy"
     np.save(str(partial_path), best_obj.points_3d)
-    print(f"Saved partial cloud: {partial_path} ({best_obj.num_points} points)")
+    print(f"Saved filtered partial: {partial_path} ({best_obj.num_points} points)")
+
+    # Save raw noisy cloud (for VC demo visualization)
+    raw_path = obj_dir / "partial_raw.npy"
+    np.save(str(raw_path), best_raw_points)
+    print(f"Saved raw partial: {raw_path} ({len(best_raw_points)} points)")
 
     return obj_dir
 

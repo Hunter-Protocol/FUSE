@@ -4,6 +4,11 @@ Shows two capabilities of FUSE:
 1. Spatial Semantics — complete mesh from noisy, incomplete point cloud
 2. Physics Inference — height, width, depth, volume, weight from mesh
 
+Three windows:
+- "Partial Point Cloud" — raw noisy ZED capture (Open3D)
+- "Complete Mesh" — Hunyuan3D reconstructed mesh (Open3D)
+- "FUSE Info" — object stats + physics properties (OpenCV)
+
 Usage:
     python -m demos.demo_vc                    # live mode (ZED camera)
     python -m demos.demo_vc --svo path.svo2    # offline camera (SVO file)
@@ -12,7 +17,6 @@ Usage:
 Controls:
     n / right arrow  = next object
     p / left arrow   = previous object
-    space            = toggle partial cloud / complete mesh
     q / ESC          = quit
 """
 
@@ -50,9 +54,12 @@ def load_object_data(label):
     else:
         data["crop"] = None
 
-    # Partial point cloud
+    # Partial point cloud — prefer raw noisy version for demo visualization
+    raw_path = obj_dir / "partial_raw.npy"
     partial_path = obj_dir / "partial.npy"
-    if partial_path.exists():
+    if raw_path.exists():
+        data["partial"] = np.load(str(raw_path))
+    elif partial_path.exists():
         data["partial"] = np.load(str(partial_path))
     else:
         return None  # partial cloud is required
@@ -78,7 +85,7 @@ def load_object_data(label):
     return data
 
 
-def make_info_panel(obj_data, show_mesh=True):
+def make_info_panel(obj_data):
     """Render the OpenCV info panel for an object."""
     panel = np.zeros((PANEL_H, PANEL_W, 3), dtype=np.uint8)
     panel[:] = (30, 30, 30)  # dark background
@@ -89,7 +96,6 @@ def make_info_panel(obj_data, show_mesh=True):
     white = (255, 255, 255)
     gray = (180, 180, 180)
     accent = (0, 200, 255)  # orange-yellow
-    green = (0, 220, 100)
 
     # Crop image (top-left)
     crop = obj_data.get("crop")
@@ -152,12 +158,6 @@ def make_info_panel(obj_data, show_mesh=True):
                     font_s, 0.5, gray, 1)
         y += 22
 
-    # Current view indicator
-    view_text = "Showing: COMPLETE MESH" if show_mesh else "Showing: PARTIAL CLOUD"
-    view_color = green if show_mesh else (100, 180, 255)
-    cv2.putText(panel, view_text, (20, y), font_s, 0.5, view_color, 1)
-    y += 30
-
     # Divider
     cv2.line(panel, (10, y), (PANEL_W - 10, y), (80, 80, 80), 1)
     y += 20
@@ -185,7 +185,7 @@ def make_info_panel(obj_data, show_mesh=True):
 
     # Bottom controls hint
     y = PANEL_H - 30
-    cv2.putText(panel, "[N] next  [P] prev  [SPACE] toggle  [Q] quit",
+    cv2.putText(panel, "[N] next  [P] prev  [Q] quit",
                 (10, y), font_s, 0.4, (120, 120, 120), 1)
 
     return panel
@@ -230,11 +230,12 @@ class VCDemo:
         self.svo_path = svo_path
         self.objects = []
         self.current_idx = 0
-        self.show_mesh = False  # start with partial cloud
 
-        # Open3D visualizer
-        self.vis = None
-        self.current_geometry = None
+        # Two Open3D visualizers
+        self.vis_partial = None
+        self.vis_mesh = None
+        self.geom_partial = None
+        self.geom_mesh = None
 
     def load_data(self):
         """Load all available pre-computed object data."""
@@ -255,31 +256,53 @@ class VCDemo:
         print(f"\nLoaded {len(self.objects)} objects: "
               + ", ".join(o['label'] for o in self.objects))
 
-    def setup_visualizer(self):
-        """Create Open3D visualization window."""
-        self.vis = o3d.visualization.Visualizer()
-        self.vis.create_window("FUSE - 3D View", width=800, height=600,
-                               left=420, top=50)
-        opt = self.vis.get_render_option()
+    def setup_visualizers(self):
+        """Create two Open3D windows: partial cloud and complete mesh."""
+        # Left window: partial noisy point cloud
+        self.vis_partial = o3d.visualization.Visualizer()
+        self.vis_partial.create_window("FUSE - Partial Point Cloud",
+                                       width=640, height=480, left=420, top=50)
+        opt = self.vis_partial.get_render_option()
         opt.point_size = 3.0
+        opt.background_color = np.array([0.1, 0.1, 0.1])
+
+        # Right window: complete mesh
+        self.vis_mesh = o3d.visualization.Visualizer()
+        self.vis_mesh.create_window("FUSE - Complete Mesh",
+                                     width=640, height=480, left=1080, top=50)
+        opt = self.vis_mesh.get_render_option()
+        opt.point_size = 2.0
         opt.background_color = np.array([0.1, 0.1, 0.1])
         opt.mesh_show_wireframe = False
 
-    def update_3d_view(self):
-        """Update the Open3D window with current object and view mode."""
+    def update_3d_views(self):
+        """Update both Open3D windows with current object."""
         obj = self.objects[self.current_idx]
 
-        # Remove old geometry
-        if self.current_geometry is not None:
-            self.vis.remove_geometry(self.current_geometry, reset_bounding_box=False)
+        # Update partial cloud window
+        if self.geom_partial is not None:
+            self.vis_partial.remove_geometry(self.geom_partial, reset_bounding_box=False)
+        self.geom_partial = create_partial_pcd(obj["partial"], obj["label"])
+        self.vis_partial.add_geometry(self.geom_partial, reset_bounding_box=True)
+        self.vis_partial.reset_view_point(True)
 
-        if self.show_mesh and obj["mesh"] is not None:
-            self.current_geometry = create_mesh_geometry(obj)
+        # Update mesh window
+        if self.geom_mesh is not None:
+            self.vis_mesh.remove_geometry(self.geom_mesh, reset_bounding_box=False)
+        if obj["mesh"] is not None:
+            self.geom_mesh = create_mesh_geometry(obj)
         else:
-            self.current_geometry = create_partial_pcd(obj["partial"], obj["label"])
+            # Fallback: show partial cloud if no mesh available
+            self.geom_mesh = create_partial_pcd(obj["partial"], obj["label"])
+        self.vis_mesh.add_geometry(self.geom_mesh, reset_bounding_box=True)
+        self.vis_mesh.reset_view_point(True)
 
-        self.vis.add_geometry(self.current_geometry, reset_bounding_box=True)
-        self.vis.reset_view_point(True)
+    def _poll_visualizers(self):
+        """Poll both Open3D windows."""
+        self.vis_partial.poll_events()
+        self.vis_partial.update_renderer()
+        self.vis_mesh.poll_events()
+        self.vis_mesh.update_renderer()
 
     def run_live(self):
         """Run with live camera feed + pre-computed 3D overlays."""
@@ -290,8 +313,6 @@ class VCDemo:
 
         with FUSEPipeline(classes, svo_path=self.svo_path) as pipe:
             print("Live mode — press 'q' to quit")
-            prev_time = time.time()
-            fps = 0.0
 
             while True:
                 bgr, detected, _, _ = pipe.process_frame(skip_scene=True)
@@ -301,27 +322,13 @@ class VCDemo:
                         break
                     continue
 
-                # Draw detections on frame
-                frame = draw_objects(bgr, detected)
-
-                # FPS
-                now = time.time()
-                fps = 0.9 * fps + 0.1 * (1.0 / max(now - prev_time, 1e-6))
-                prev_time = now
-                cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-
-                # Show camera feed
-                cv2.imshow("FUSE - Camera", frame)
-
                 # Info panel
                 obj = self.objects[self.current_idx]
-                panel = make_info_panel(obj, self.show_mesh)
+                panel = make_info_panel(obj)
                 cv2.imshow("FUSE - Info", panel)
 
-                # 3D view
-                self.vis.poll_events()
-                self.vis.update_renderer()
+                # 3D views
+                self._poll_visualizers()
 
                 key = cv2.waitKey(1) & 0xFF
                 if not self._handle_key(key):
@@ -333,16 +340,11 @@ class VCDemo:
 
         while True:
             obj = self.objects[self.current_idx]
-            panel = make_info_panel(obj, self.show_mesh)
+            panel = make_info_panel(obj)
             cv2.imshow("FUSE - Info", panel)
 
-            # Show crop as standalone window if available
-            if obj["crop"] is not None:
-                cv2.imshow("FUSE - Input Crop", obj["crop"])
-
-            # 3D view
-            self.vis.poll_events()
-            self.vis.update_renderer()
+            # 3D views
+            self._poll_visualizers()
 
             key = cv2.waitKey(30) & 0xFF
             if not self._handle_key(key):
@@ -354,22 +356,16 @@ class VCDemo:
             return False
         elif key in (ord('n'), 83):  # n or right arrow
             self.current_idx = (self.current_idx + 1) % len(self.objects)
-            self.show_mesh = False
-            self.update_3d_view()
+            self.update_3d_views()
         elif key in (ord('p'), 81):  # p or left arrow
             self.current_idx = (self.current_idx - 1) % len(self.objects)
-            self.show_mesh = False
-            self.update_3d_view()
-        elif key == ord(' '):  # space = toggle
-            if self.objects[self.current_idx]["mesh"] is not None:
-                self.show_mesh = not self.show_mesh
-                self.update_3d_view()
+            self.update_3d_views()
         return True
 
     def run(self):
         self.load_data()
-        self.setup_visualizer()
-        self.update_3d_view()
+        self.setup_visualizers()
+        self.update_3d_views()
 
         try:
             if self.offline:
@@ -377,7 +373,8 @@ class VCDemo:
             else:
                 self.run_live()
         finally:
-            self.vis.destroy_window()
+            self.vis_partial.destroy_window()
+            self.vis_mesh.destroy_window()
             cv2.destroyAllWindows()
 
 
