@@ -32,6 +32,8 @@ def main():
                         help="Save into data/<label>/ (requires --label)")
     parser.add_argument("--no-vis", action="store_true",
                         help="Skip visualization")
+    parser.add_argument("--model", type=str, default="v20", choices=["v20", "v21"],
+                        help="Model version: v20 (1.1B) or v21 (3.3B, higher detail)")
     args = parser.parse_args()
 
     image_path = Path(args.image)
@@ -49,9 +51,13 @@ def main():
     image_bytes = buf.getvalue()
 
     # Call Modal endpoint
-    print(f"\nSending to Hunyuan3D on Modal A100...")
-    Hunyuan3DModel = modal.Cls.from_name("fuse-hunyuan3d", "Hunyuan3DModel")
-    model = Hunyuan3DModel()
+    if args.model == "v21":
+        print(f"\nSending to Hunyuan3D v2.1 (3.3B) on Modal A100...")
+        ModelCls = modal.Cls.from_name("fuse-hunyuan3d-v21", "Hunyuan3DV21Model")
+    else:
+        print(f"\nSending to Hunyuan3D v2.0 (1.1B) on Modal A100...")
+        ModelCls = modal.Cls.from_name("fuse-hunyuan3d", "Hunyuan3DModel")
+    model = ModelCls()
 
     t0 = time.time()
     result = model.generate.remote(image_bytes)
@@ -72,10 +78,12 @@ def main():
         obj_dir = DATA_DIR / args.label
         obj_dir.mkdir(parents=True, exist_ok=True)
 
-        # Copy input image as crop
-        import shutil
-        shutil.copy2(image_path, obj_dir / "crop.png")
-        print(f"Saved crop: {obj_dir / 'crop.png'}")
+        # Copy input image as crop (skip if same file)
+        crop_dst = obj_dir / "crop.png"
+        if image_path.resolve() != crop_dst.resolve():
+            import shutil
+            shutil.copy2(image_path, crop_dst)
+            print(f"Saved crop: {crop_dst}")
 
         # Save canonical mesh
         np.savez(str(obj_dir / "mesh_canonical.npz"), vertices=vertices, faces=faces)
