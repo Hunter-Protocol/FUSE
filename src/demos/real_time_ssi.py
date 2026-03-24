@@ -136,7 +136,7 @@ def run_inference_status(label, obj_data):
     """Hacker-style terminal output for inference process."""
     print()
     print(f"{BOLD}{CYAN}{'='*60}{RESET}")
-    print(f"{BOLD}{CYAN}  FUSE SPATIAL AI — INFERENCE ENGINE{RESET}")
+    print(f"{BOLD}{CYAN}  REAL TIME SSI — INFERENCE ENGINE{RESET}")
     print(f"{BOLD}{CYAN}{'='*60}{RESET}")
     print()
 
@@ -317,11 +317,11 @@ def make_info_panel(obj_data):
         crop_w = min(int(crop.shape[1] * scale), 160)
         crop_resized = cv2.resize(crop, (crop_w, crop_h))
         panel[y:y+crop_h, 10:10+crop_w] = crop_resized
-        cv2.putText(panel, "FUSE", (crop_w + 20, y + 35), font, 0.9, accent, 2)
-        cv2.putText(panel, "Spatial AI", (crop_w + 20, y + 65), font, 0.6, gray, 1)
+        cv2.putText(panel, "RT-SSI", (crop_w + 20, y + 35), font, 0.9, accent, 2)
+        cv2.putText(panel, "Spatial Semantics", (crop_w + 20, y + 65), font, 0.5, gray, 1)
         y += crop_h + 15
     else:
-        cv2.putText(panel, "FUSE Spatial AI", (10, y + 30), font, 0.8, accent, 2)
+        cv2.putText(panel, "Real Time SSI", (10, y + 30), font, 0.8, accent, 2)
         y += 45
 
     cv2.line(panel, (10, y), (PANEL_W - 10, y), (80, 80, 80), 1)
@@ -398,11 +398,9 @@ class VCDemo:
             data = load_object_data(label)
             if data is not None:
                 self.objects[label] = data
-                print(f"  Loaded {label}: {len(data['partial']):,} pts"
-                      + (f", {len(data['mesh'].faces):,} faces" if data['mesh'] else "")
-                      + (" + physics" if data['physics'] else ""))
+                pass  # silently load
             else:
-                print(f"  Skipping {label}: no data in {DATA_DIR / label}")
+                print(f"  Warning: no data for {label}")
 
         if not self.objects:
             print("ERROR: No object data found. Run precompute_demo_data.py first.")
@@ -419,7 +417,7 @@ class VCDemo:
 
         # Open3D: live raw point cloud (updated every frame)
         vis = o3d.visualization.Visualizer()
-        vis.create_window("FUSE - Raw Point Cloud", width=720, height=540,
+        vis.create_window("RT-SSI - Raw Point Cloud", width=720, height=540,
                           left=700, top=50)
         opt = vis.get_render_option()
         opt.point_size = 2.0
@@ -438,7 +436,7 @@ class VCDemo:
                 if bgr is not None:
                     remap_labels(detected)
                     frame = draw_detections(bgr, detected)
-                    cv2.imshow("FUSE - Live Detection", frame)
+                    cv2.imshow("RT-SSI - Live Detection", frame)
                     vis.poll_events()
                     vis.update_renderer()
                     cv2.waitKey(1)
@@ -448,7 +446,7 @@ class VCDemo:
 
             def ask_input():
                 print(f"\n{BOLD}{CYAN}{'─'*50}{RESET}")
-                print(f"{BOLD}  FUSE — Object Selection{RESET}")
+                print(f"{BOLD}  RT-SSI — Object Selection{RESET}")
                 print(f"{BOLD}{CYAN}{'─'*50}{RESET}")
                 print(f"\n  Detected objects are shown in the video feed.")
                 print(f"  Available for inference: {BOLD}{', '.join(available)}{RESET}")
@@ -518,7 +516,7 @@ class VCDemo:
                 cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
-                cv2.imshow("FUSE - Live Detection", frame)
+                cv2.imshow("RT-SSI - Live Detection", frame)
 
                 vis.poll_events()
                 vis.update_renderer()
@@ -537,7 +535,7 @@ class VCDemo:
 
         # Open3D: all-object noisy point cloud
         vis = o3d.visualization.Visualizer()
-        vis.create_window("FUSE - Raw Point Cloud", width=720, height=540,
+        vis.create_window("RT-SSI - Raw Point Cloud", width=720, height=540,
                           left=700, top=50)
         opt = vis.get_render_option()
         opt.point_size = 2.0
@@ -552,7 +550,7 @@ class VCDemo:
 
         def ask_input():
             print(f"\n{BOLD}{CYAN}{'─'*50}{RESET}")
-            print(f"{BOLD}  FUSE — Object Selection{RESET}")
+            print(f"{BOLD}  RT-SSI — Object Selection{RESET}")
             print(f"{BOLD}{CYAN}{'─'*50}{RESET}")
             print(f"\n  Point clouds are shown in the 3D viewer.")
             print(f"  Available for inference: {BOLD}{', '.join(available)}{RESET}")
@@ -594,7 +592,7 @@ class VCDemo:
 
         # Window 1: raw partial point cloud
         vis_partial = o3d.visualization.Visualizer()
-        vis_partial.create_window("FUSE - Partial Point Cloud (raw)",
+        vis_partial.create_window("RT-SSI - Partial Point Cloud (raw)",
                                    width=640, height=480, left=0, top=50)
         opt = vis_partial.get_render_option()
         opt.point_size = 2.0
@@ -606,7 +604,7 @@ class VCDemo:
 
         # Window 2: complete mesh
         vis_mesh = o3d.visualization.Visualizer()
-        vis_mesh.create_window("FUSE - Complete Mesh",
+        vis_mesh.create_window("RT-SSI - Complete Mesh",
                                 width=640, height=480, left=660, top=50)
         opt = vis_mesh.get_render_option()
         opt.point_size = 2.0
@@ -622,7 +620,7 @@ class VCDemo:
 
         # Window 3: info panel (OpenCV)
         panel = make_info_panel(obj_data)
-        cv2.imshow("FUSE - Info", panel)
+        cv2.imshow("RT-SSI - Info", panel)
 
         print(f"  {DIM}Showing results for {label}. Press 'q' to continue.{RESET}")
 
@@ -643,7 +641,7 @@ class VCDemo:
     # ---- Main loop ----
 
     def run(self):
-        print(f"\n{BOLD}{CYAN}  FUSE — Spatial AI Demo{RESET}")
+        print(f"\n{BOLD}{CYAN}  Real Time Spatial Semantics Inference{RESET}")
         print(f"  {'─'*40}\n")
 
         self.load_data()
@@ -672,7 +670,7 @@ class VCDemo:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="FUSE VC Showcase Demo")
+    parser = argparse.ArgumentParser(description="Real Time Spatial Semantics Inference")
     parser.add_argument("--offline", action="store_true",
                         help="Fully offline mode (no camera)")
     parser.add_argument("--svo", type=str,
