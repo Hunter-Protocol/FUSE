@@ -432,7 +432,6 @@ class VCDemo:
             data = load_object_data(label)
             if data is not None:
                 self.objects[label] = data
-                pass  # silently load
             else:
                 print(f"  Warning: no data for {label}")
 
@@ -440,43 +439,67 @@ class VCDemo:
             print("ERROR: No object data found. Run precompute_demo_data.py first.")
             sys.exit(1)
 
-    # ---- Phase 1: Live detection view ----
+    def run(self):
+        print(f"\n{BOLD}{CYAN}  Real Time Spatial Semantics Inference{RESET}")
+        print(f"  {'─'*40}\n")
 
-    def run_phase1_live(self):
-        """Show RGB video + live raw point cloud. Returns when user picks object."""
+        self.load_data()
+
+        if self.offline:
+            self._run_offline()
+        else:
+            self._run_live()
+
+    def _run_live(self):
+        """Single-loop live mode. Pipeline and windows stay alive the whole time."""
         from core.pipeline import FUSEPipeline
 
         available = list(self.objects.keys())
         classes = YOLOE_CLASSES
 
-        # Open3D: live raw point cloud (updated every frame)
-        vis = o3d.visualization.Visualizer()
-        vis.create_window("RT-SSI - Raw Point Cloud", width=720, height=540,
-                          left=700, top=50)
-        opt = vis.get_render_option()
+        # --- Persistent windows ---
+        # Window 1: live video (OpenCV)
+        # Window 2: live raw point cloud (Open3D)
+        vis_pcd = o3d.visualization.Visualizer()
+        vis_pcd.create_window("RT-SSI - Raw Point Cloud", width=640, height=480,
+                              left=660, top=50)
+        opt = vis_pcd.get_render_option()
         opt.point_size = 2.0
         opt.background_color = np.array([0.05, 0.05, 0.05])
 
         live_pcd = o3d.geometry.PointCloud()
-        vis.add_geometry(live_pcd)
+        vis_pcd.add_geometry(live_pcd)
         first_points = True
-        # Store latest raw points and object crops per label for Phase 3
+
+        # Window 3: complete mesh (Open3D) — created once, shown after inference
+        vis_mesh = o3d.visualization.Visualizer()
+        vis_mesh.create_window("RT-SSI - Complete Mesh", width=640, height=480,
+                               left=660, top=560)
+        opt = vis_mesh.get_render_option()
+        opt.background_color = np.array([0.05, 0.05, 0.05])
+        opt.mesh_show_wireframe = False
+        mesh_geom = None  # current mesh geometry in the window
+
+        # State
         raw_points_by_label = {}
         live_crops_by_label = {}
+        inference_done = False  # whether we've run inference for a selection
 
         with FUSEPipeline(classes, svo_path=self.svo_path, model_size="11m") as pipe:
-            # Run a few warmup frames so model is loaded before showing prompt
+            # Warmup
             for _ in range(3):
                 bgr, detected, _, _ = pipe.process_frame(skip_scene=True)
                 if bgr is not None:
                     remap_labels(detected)
                     frame = draw_detections(bgr, detected)
                     cv2.imshow("RT-SSI - Live Detection", frame)
-                    vis.poll_events()
-                    vis.update_renderer()
+                    vis_pcd.poll_events()
+                    vis_pcd.update_renderer()
+                    vis_mesh.poll_events()
+                    vis_mesh.update_renderer()
                     cv2.waitKey(1)
 
-            # Now show the prompt (after all init output is done)
+            # Prompt for object selection (non-blocking thread)
             selected = [None]
 
             def ask_input():
@@ -500,18 +523,17 @@ class VCDemo:
             fps = 0.0
             prev_time = time.time()
 
-            while selected[0] is None:
+            # --- Main loop: live feed runs continuously ---
+            while True:
                 bgr, detected, _, _ = pipe.process_frame(skip_scene=True)
                 if bgr is None:
                     if self.svo_path:
                         break
                     continue
 
-                # Remap "coffee mug" -> "mug", etc.
                 remap_labels(detected)
 
-                # Extract RAW unfiltered points from each detected object
-                # (pipeline already retrieved pc_mat, reuse it)
+                # Extract raw points + crops per label
                 pc_data = pipe.pc_mat.get_data()
                 all_pts, all_clr = [], []
                 for obj in detected:
@@ -523,7 +545,6 @@ class VCDemo:
                         all_pts.append(raw_pts)
                         all_clr.append(np.tile(color, (len(raw_pts), 1)))
                         raw_points_by_label[obj.label] = raw_pts
-                    # Save cropped object from raw frame
                     x1, y1, x2, y2 = obj.box_2d
                     pad = 10
                     h, w = bgr.shape[:2]
@@ -543,39 +564,68 @@ class VCDemo:
                     live_pcd.points = o3d.utility.Vector3dVector(np.zeros((0, 3)))
                     live_pcd.colors = o3d.utility.Vector3dVector(np.zeros((0, 3)))
 
-                vis.update_geometry(live_pcd)
+                vis_pcd.update_geometry(live_pcd)
                 if first_points and all_pts:
-                    vis.reset_view_point(True)
+                    vis_pcd.reset_view_point(True)
                     first_points = False
 
-                # Draw detections with colored bounding boxes
+                # Draw detections
                 frame = draw_detections(bgr, detected)
-
-                # FPS
                 now = time.time()
                 fps = 0.9 * fps + 0.1 * (1.0 / max(now - prev_time, 1e-6))
                 prev_time = now
                 cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-
                 cv2.imshow("RT-SSI - Live Detection", frame)
 
-                vis.poll_events()
-                vis.update_renderer()
+                # Poll all Open3D windows
+                vis_pcd.poll_events()
+                vis_pcd.update_renderer()
+                vis_mesh.poll_events()
+                vis_mesh.update_renderer()
+
+                # Check if user selected an object
+                if selected[0] is not None and not inference_done:
+                    if selected[0] == "__quit__":
+                        break
+
+                    label = selected[0]
+
+                    # Run hacker inference status (blocks briefly in terminal)
+                    run_inference_status(label, self.objects[label])
+
+                    # Show mesh in the mesh window
+                    obj_data = self.objects[label]
+                    if mesh_geom is not None:
+                        vis_mesh.remove_geometry(mesh_geom, reset_bounding_box=False)
+                    if obj_data["mesh"] is not None:
+                        mesh_geom = create_mesh_geometry(obj_data)
+                    else:
+                        mesh_geom = create_partial_pcd(obj_data["partial"], label)
+                    vis_mesh.add_geometry(mesh_geom, reset_bounding_box=True)
+                    vis_mesh.reset_view_point(True)
+
+                    # Show info panel (OpenCV)
+                    live_crop = live_crops_by_label.get(label)
+                    panel = make_info_panel(obj_data, live_crop=live_crop)
+                    cv2.imshow("RT-SSI - Info", panel)
+
+                    inference_done = True
+                    print(f"\n  {DIM}Press 'q' to quit.{RESET}")
 
                 key = cv2.waitKey(1) & 0xFF
                 if key in (ord('q'), 27):
-                    selected[0] = "__quit__"
+                    break
 
-        vis.destroy_window()
+        vis_pcd.destroy_window()
+        vis_mesh.destroy_window()
         cv2.destroyAllWindows()
-        return selected[0], raw_points_by_label, live_crops_by_label
 
-    def run_phase1_offline(self):
-        """Offline version: show pre-computed point cloud, prompt in terminal."""
+    def _run_offline(self):
+        """Offline mode with pre-computed data only."""
         available = list(self.objects.keys())
 
-        # Open3D: all-object noisy point cloud
+        # Point cloud window
         vis = o3d.visualization.Visualizer()
         vis.create_window("RT-SSI - Raw Point Cloud", width=720, height=540,
                           left=700, top=50)
@@ -587,15 +637,23 @@ class VCDemo:
         vis.add_geometry(scene_pcd)
         vis.reset_view_point(True)
 
-        # Terminal prompt (non-blocking)
+        # Mesh window
+        vis_mesh = o3d.visualization.Visualizer()
+        vis_mesh.create_window("RT-SSI - Complete Mesh", width=640, height=480,
+                               left=700, top=620)
+        opt = vis_mesh.get_render_option()
+        opt.background_color = np.array([0.05, 0.05, 0.05])
+        opt.mesh_show_wireframe = False
+        mesh_geom = None
+
         selected = [None]
+        inference_done = False
 
         def ask_input():
             print(f"\n{BOLD}{CYAN}{'─'*50}{RESET}")
             print(f"{BOLD}  RT-SSI — Object Selection{RESET}")
             print(f"{BOLD}{CYAN}{'─'*50}{RESET}")
-            print(f"\n  Point clouds are shown in the 3D viewer.")
-            print(f"  Available for inference: {BOLD}{', '.join(available)}{RESET}")
+            print(f"\n  Available for inference: {BOLD}{', '.join(available)}{RESET}")
             while selected[0] is None:
                 choice = input(f"\n  {YELLOW}>{RESET} Which object? ").strip().lower()
                 if choice in available:
@@ -608,119 +666,42 @@ class VCDemo:
         input_thread = threading.Thread(target=ask_input, daemon=True)
         input_thread.start()
 
-        while selected[0] is None:
+        while True:
             vis.poll_events()
             vis.update_renderer()
-            time.sleep(0.03)
-
-        vis.destroy_window()
-        return selected[0], {}, {}  # no live raw points or crops in offline mode
-
-    # ---- Phase 2: Hacker inference status (terminal) ----
-
-    def run_phase2(self, label):
-        """Show hacker-style inference progress in terminal."""
-        obj_data = self.objects[label]
-        run_inference_status(label, obj_data)
-
-    # ---- Phase 3: Result visualization ----
-
-    def run_phase3(self, label, raw_points=None, live_crop=None):
-        """Show 2 windows: raw partial cloud, complete mesh + info panel."""
-        obj_data = self.objects[label]
-
-        # Use live raw points if available, otherwise fall back to stored data
-        partial_pts = raw_points if raw_points is not None else obj_data["partial"]
-
-        # Window 1: raw partial point cloud
-        vis_partial = o3d.visualization.Visualizer()
-        vis_partial.create_window("RT-SSI - Partial Point Cloud (raw)",
-                                   width=640, height=480, left=0, top=50)
-        opt = vis_partial.get_render_option()
-        opt.point_size = 2.0
-        opt.background_color = np.array([0.05, 0.05, 0.05])
-
-        pcd = create_partial_pcd(partial_pts, label)
-        vis_partial.add_geometry(pcd)
-        vis_partial.reset_view_point(True)
-
-        # Window 2: complete mesh (with info panel flush on right)
-        mesh_w, mesh_h = 640, 480
-        vis_mesh = o3d.visualization.Visualizer()
-        vis_mesh.create_window("RT-SSI - Complete Mesh",
-                                width=mesh_w, height=mesh_h, left=660, top=50)
-        opt = vis_mesh.get_render_option()
-        opt.point_size = 2.0
-        opt.background_color = np.array([0.05, 0.05, 0.05])
-        opt.mesh_show_wireframe = False
-
-        if obj_data["mesh"] is not None:
-            mesh_geom = create_mesh_geometry(obj_data)
-        else:
-            mesh_geom = create_partial_pcd(obj_data["partial"], label)
-        vis_mesh.add_geometry(mesh_geom)
-        vis_mesh.reset_view_point(True)
-
-        # Info panel (OpenCV) — positioned flush right of mesh window
-        panel = make_info_panel(obj_data, live_crop=live_crop)
-        cv2.imshow("RT-SSI - Complete Mesh | Info", panel)
-        cv2.moveWindow("RT-SSI - Complete Mesh | Info", 660 + mesh_w + 5, 50)
-
-        print(f"  {DIM}Press 'b' to go back, 'q' to quit.{RESET}")
-
-        go_back = False
-        while True:
-            vis_partial.poll_events()
-            vis_partial.update_renderer()
             vis_mesh.poll_events()
             vis_mesh.update_renderer()
 
+            if selected[0] is not None and not inference_done:
+                if selected[0] == "__quit__":
+                    break
+
+                label = selected[0]
+                run_inference_status(label, self.objects[label])
+
+                obj_data = self.objects[label]
+                if mesh_geom is not None:
+                    vis_mesh.remove_geometry(mesh_geom, reset_bounding_box=False)
+                if obj_data["mesh"] is not None:
+                    mesh_geom = create_mesh_geometry(obj_data)
+                else:
+                    mesh_geom = create_partial_pcd(obj_data["partial"], label)
+                vis_mesh.add_geometry(mesh_geom, reset_bounding_box=True)
+                vis_mesh.reset_view_point(True)
+
+                panel = make_info_panel(obj_data)
+                cv2.imshow("RT-SSI - Info", panel)
+
+                inference_done = True
+                print(f"\n  {DIM}Press 'q' to quit.{RESET}")
+
             key = cv2.waitKey(30) & 0xFF
-            if key == ord('b'):
-                go_back = True
-                break
-            elif key in (ord('q'), 27):
+            if key in (ord('q'), 27):
                 break
 
-        vis_partial.destroy_window()
+        vis.destroy_window()
         vis_mesh.destroy_window()
         cv2.destroyAllWindows()
-        return go_back
-
-    # ---- Main loop ----
-
-    def run(self):
-        print(f"\n{BOLD}{CYAN}  Real Time Spatial Semantics Inference{RESET}")
-        print(f"  {'─'*40}\n")
-
-        self.load_data()
-
-        while True:
-            # Phase 1: live detection + object selection
-            if self.offline:
-                selected, raw_points_map, live_crops = self.run_phase1_offline()
-            else:
-                selected, raw_points_map, live_crops = self.run_phase1_live()
-
-            if selected is None or selected == "__quit__":
-                print(f"\n{DIM}Exiting demo.{RESET}")
-                break
-
-            # Phase 2: hacker inference status
-            self.run_phase2(selected)
-
-            # Phase 3: result visualization
-            live_raw = raw_points_map.get(selected)
-            live_crop = live_crops.get(selected)
-            go_back = self.run_phase3(selected, raw_points=live_raw, live_crop=live_crop)
-
-            if not go_back:
-                print(f"\n{DIM}Exiting.{RESET}")
-                break
-
-            print(f"\n{DIM}{'─'*40}{RESET}")
-            print(f"{DIM}Returning to detection view...{RESET}")
-            time.sleep(0.5)
 
 
 def main():
