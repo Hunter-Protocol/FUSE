@@ -458,12 +458,12 @@ class VCDemo:
         classes = YOLOE_CLASSES
 
         # --- Window layout ---
-        # Top:    Live Video (OpenCV)                      ~880x560
+        # Top:    Live Video (OpenCV, resized)
         # Bottom: Point Cloud | Complete Mesh | Info Panel
-        TOP_W, TOP_H = 880, 560
-        BOT_W, BOT_H = 440, 380
-        INFO_W = PANEL_W  # 400
-        ROW2_Y = TOP_H + 60  # top height + title bar + gap
+        LIVE_W, LIVE_H = 860, 480  # resized live feed
+        BOT_W, BOT_H = 430, 400
+        TITLE_BAR = 55  # window title bar + border
+        ROW2_Y = LIVE_H + TITLE_BAR
 
         # Bottom-left: raw point cloud
         vis_pcd = o3d.visualization.Visualizer()
@@ -498,6 +498,7 @@ class VCDemo:
                 if bgr is not None:
                     remap_labels(detected)
                     frame = draw_detections(bgr, detected)
+                    frame = cv2.resize(frame, (LIVE_W, LIVE_H))
                     cv2.imshow("RT-SSI - Live Detection", frame)
                     cv2.moveWindow("RT-SSI - Live Detection", 0, 0)
                     vis_pcd.poll_events()
@@ -581,6 +582,7 @@ class VCDemo:
                 now = time.time()
                 fps = 0.9 * fps + 0.1 * (1.0 / max(now - prev_time, 1e-6))
                 prev_time = now
+                frame = cv2.resize(frame, (LIVE_W, LIVE_H))
                 cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                 cv2.imshow("RT-SSI - Live Detection", frame)
