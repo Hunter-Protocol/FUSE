@@ -411,13 +411,13 @@ class VCDemo:
     # ---- Phase 1: Live detection view ----
 
     def run_phase1_live(self):
-        """Show RGB video + all-object point cloud. Returns when user picks object."""
+        """Show RGB video + live raw point cloud. Returns when user picks object."""
         from core.pipeline import FUSEPipeline
 
         available = list(self.objects.keys())
         classes = YOLOE_CLASSES
 
-        # Open3D: all-object noisy point cloud
+        # Open3D: live raw point cloud (updated every frame)
         vis = o3d.visualization.Visualizer()
         vis.create_window("FUSE - Raw Point Cloud", width=720, height=540,
                           left=700, top=50)
@@ -425,9 +425,9 @@ class VCDemo:
         opt.point_size = 2.0
         opt.background_color = np.array([0.05, 0.05, 0.05])
 
-        scene_pcd = build_scene_pcd(list(self.objects.values()))
-        vis.add_geometry(scene_pcd)
-        vis.reset_view_point(True)
+        live_pcd = o3d.geometry.PointCloud()
+        vis.add_geometry(live_pcd)
+        first_points = True
 
         with FUSEPipeline(classes, svo_path=self.svo_path, model_size="11m") as pipe:
             # Run a few warmup frames so model is loaded before showing prompt
@@ -474,6 +474,36 @@ class VCDemo:
 
                 # Remap "coffee mug" -> "mug", etc.
                 remap_labels(detected)
+
+                # Extract RAW unfiltered points from each detected object
+                # (pipeline already retrieved pc_mat, reuse it)
+                pc_data = pipe.pc_mat.get_data()
+                all_pts, all_clr = [], []
+                for obj in detected:
+                    xyz = pc_data[:, :, :3][obj.mask]
+                    valid = np.isfinite(xyz).all(axis=1)
+                    raw_pts = xyz[valid].astype(np.float32)
+                    if len(raw_pts) > 0:
+                        color = LABEL_COLORS.get(obj.label, DEFAULT_LABEL_COLOR)
+                        all_pts.append(raw_pts)
+                        all_clr.append(np.tile(color, (len(raw_pts), 1)))
+
+                # Update live point cloud
+                if all_pts:
+                    pts = np.vstack(all_pts).astype(np.float64)
+                    clr = np.vstack(all_clr).astype(np.float64)
+                    live_pcd.points = o3d.utility.Vector3dVector(
+                        np.ascontiguousarray(pts))
+                    live_pcd.colors = o3d.utility.Vector3dVector(
+                        np.ascontiguousarray(clr))
+                else:
+                    live_pcd.points = o3d.utility.Vector3dVector(np.zeros((0, 3)))
+                    live_pcd.colors = o3d.utility.Vector3dVector(np.zeros((0, 3)))
+
+                vis.update_geometry(live_pcd)
+                if first_points and all_pts:
+                    vis.reset_view_point(True)
+                    first_points = False
 
                 # Draw detections with colored bounding boxes
                 frame = draw_detections(bgr, detected)
