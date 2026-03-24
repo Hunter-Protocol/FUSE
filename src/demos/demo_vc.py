@@ -428,6 +428,8 @@ class VCDemo:
         live_pcd = o3d.geometry.PointCloud()
         vis.add_geometry(live_pcd)
         first_points = True
+        # Store latest raw points per label for Phase 3
+        raw_points_by_label = {}
 
         with FUSEPipeline(classes, svo_path=self.svo_path, model_size="11m") as pipe:
             # Run a few warmup frames so model is loaded before showing prompt
@@ -487,6 +489,7 @@ class VCDemo:
                         color = LABEL_COLORS.get(obj.label, DEFAULT_LABEL_COLOR)
                         all_pts.append(raw_pts)
                         all_clr.append(np.tile(color, (len(raw_pts), 1)))
+                        raw_points_by_label[obj.label] = raw_pts
 
                 # Update live point cloud
                 if all_pts:
@@ -526,7 +529,7 @@ class VCDemo:
 
         vis.destroy_window()
         cv2.destroyAllWindows()
-        return selected[0]
+        return selected[0], raw_points_by_label
 
     def run_phase1_offline(self):
         """Offline version: show pre-computed point cloud, prompt in terminal."""
@@ -571,7 +574,7 @@ class VCDemo:
             time.sleep(0.03)
 
         vis.destroy_window()
-        return selected[0]
+        return selected[0], {}  # no live raw points in offline mode
 
     # ---- Phase 2: Hacker inference status (terminal) ----
 
@@ -582,9 +585,12 @@ class VCDemo:
 
     # ---- Phase 3: Result visualization ----
 
-    def run_phase3(self, label):
+    def run_phase3(self, label, raw_points=None):
         """Show 3 windows: raw partial cloud, complete mesh, info panel."""
         obj_data = self.objects[label]
+
+        # Use live raw points if available, otherwise fall back to stored data
+        partial_pts = raw_points if raw_points is not None else obj_data["partial"]
 
         # Window 1: raw partial point cloud
         vis_partial = o3d.visualization.Visualizer()
@@ -594,7 +600,7 @@ class VCDemo:
         opt.point_size = 2.0
         opt.background_color = np.array([0.05, 0.05, 0.05])
 
-        pcd = create_partial_pcd(obj_data["partial"], label)
+        pcd = create_partial_pcd(partial_pts, label)
         vis_partial.add_geometry(pcd)
         vis_partial.reset_view_point(True)
 
@@ -645,9 +651,9 @@ class VCDemo:
         while True:
             # Phase 1: live detection + object selection
             if self.offline:
-                selected = self.run_phase1_offline()
+                selected, raw_points_map = self.run_phase1_offline()
             else:
-                selected = self.run_phase1_live()
+                selected, raw_points_map = self.run_phase1_live()
 
             if selected is None or selected == "__quit__":
                 print(f"\n{DIM}Exiting demo.{RESET}")
@@ -656,8 +662,9 @@ class VCDemo:
             # Phase 2: hacker inference status
             self.run_phase2(selected)
 
-            # Phase 3: result visualization
-            self.run_phase3(selected)
+            # Phase 3: result visualization (use live raw points if captured)
+            live_raw = raw_points_map.get(selected)
+            self.run_phase3(selected, raw_points=live_raw)
 
             print(f"\n{DIM}{'─'*40}{RESET}")
             print(f"{DIM}Returning to detection view...{RESET}")
