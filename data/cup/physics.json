@@ -1,0 +1,11 @@
+{
+  "height_cm": 10.0,
+  "width_cm": 18.2,
+  "depth_cm": 18.2,
+  "volume_cm3": 2602.0,
+  "surface_area_cm2": 1092.3,
+  "weight_g": 250.0,
+  "material": "glass",
+  "partial_points_count": 27316,
+  "mesh_faces_count": 832680
+}

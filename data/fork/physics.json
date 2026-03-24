@@ -1,0 +1,11 @@
+{
+  "height_cm": 20.5,
+  "width_cm": 2.5,
+  "depth_cm": 0.27,
+  "volume_cm3": 10.3,
+  "surface_area_cm2": 112.5,
+  "weight_g": 40.0,
+  "material": "stainless steel",
+  "partial_points_count": 7113,
+  "mesh_faces_count": 62264
+}

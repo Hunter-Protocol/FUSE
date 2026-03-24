@@ -1,0 +1,11 @@
+{
+  "height_cm": 11.5,
+  "width_cm": 9.3,
+  "depth_cm": 9.3,
+  "volume_cm3": 781.2,
+  "surface_area_cm2": 472.1,
+  "weight_g": 290.0,
+  "material": "ceramic",
+  "partial_points_count": 9364,
+  "mesh_faces_count": 1472276
+}

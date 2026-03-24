@@ -178,14 +178,31 @@ def run_inference_status(label, obj_data):
         print(f"\n  {GREEN}{'─'*50}{RESET}")
         print(f"  {BOLD}{GREEN}RESULTS{RESET}")
         print(f"  {GREEN}{'─'*50}{RESET}")
-        props = [
-            ("Height",   f"{physics['height_cm']} cm"),
-            ("Width",    f"{physics['width_cm']} cm"),
-            ("Depth",    f"{physics['depth_cm']} cm"),
-            ("Volume",   f"{physics['volume_cm3']} cm3"),
-            ("Weight",   f"~{physics['weight_g']:.0f} g"),
-            ("Material", physics['material']),
-        ]
+        if label in ("mug", "cup"):
+            radius_cm = round(physics['depth_cm'] / 2, 1)
+            props = [
+                ("Height",   f"{physics['height_cm']} cm"),
+                ("Radius",   f"{radius_cm} cm"),
+                ("Volume",   f"{physics['volume_cm3']} cm3"),
+                ("Weight",   f"~{physics['weight_g']:.0f} g"),
+                ("Material", physics['material']),
+            ]
+        elif label == "fork":
+            props = [
+                ("Length",    f"{physics['height_cm']} cm"),
+                ("Width",     f"{physics['width_cm']} cm"),
+                ("Thickness", f"{physics['depth_cm']} cm"),
+                ("Weight",    f"~{physics['weight_g']:.0f} g"),
+                ("Material",  physics['material']),
+            ]
+        else:
+            props = [
+                ("Height",   f"{physics['height_cm']} cm"),
+                ("Width",    f"{physics['width_cm']} cm"),
+                ("Volume",   f"{physics['volume_cm3']} cm3"),
+                ("Weight",   f"~{physics['weight_g']:.0f} g"),
+                ("Material", physics['material']),
+            ]
         for name, val in props:
             time.sleep(0.15)
             print(f"    {CYAN}{name:10s}{RESET}  {BOLD}{val}{RESET}")
@@ -297,7 +314,7 @@ def build_scene_pcd(objects_data):
 # Info panel (Phase 3)
 # ---------------------------------------------------------------------------
 
-def make_info_panel(obj_data, live_frame=None):
+def make_info_panel(obj_data, live_crop=None):
     """Render the OpenCV info panel for a single object."""
     panel = np.zeros((PANEL_H, PANEL_W, 3), dtype=np.uint8)
     panel[:] = (30, 30, 30)
@@ -308,8 +325,8 @@ def make_info_panel(obj_data, live_frame=None):
     gray = (180, 180, 180)
     accent = (0, 200, 255)
 
-    # Thumbnail: prefer live frame, fall back to saved crop
-    thumb = live_frame if live_frame is not None else obj_data.get("crop")
+    # Thumbnail: prefer live crop of selected object, fall back to saved crop
+    thumb = live_crop if live_crop is not None else obj_data.get("crop")
     if thumb is not None:
         crop_h = 120
         scale = crop_h / thumb.shape[0]
@@ -443,9 +460,9 @@ class VCDemo:
         live_pcd = o3d.geometry.PointCloud()
         vis.add_geometry(live_pcd)
         first_points = True
-        # Store latest raw points per label for Phase 3
+        # Store latest raw points and object crops per label for Phase 3
         raw_points_by_label = {}
-        last_frame = None  # capture last live frame for info panel
+        live_crops_by_label = {}
 
         with FUSEPipeline(classes, svo_path=self.svo_path, model_size="11m") as pipe:
             # Run a few warmup frames so model is loaded before showing prompt
@@ -506,6 +523,13 @@ class VCDemo:
                         all_pts.append(raw_pts)
                         all_clr.append(np.tile(color, (len(raw_pts), 1)))
                         raw_points_by_label[obj.label] = raw_pts
+                    # Save cropped object from raw frame
+                    x1, y1, x2, y2 = obj.box_2d
+                    pad = 10
+                    h, w = bgr.shape[:2]
+                    cx1, cy1 = max(0, x1 - pad), max(0, y1 - pad)
+                    cx2, cy2 = min(w, x2 + pad), min(h, y2 + pad)
+                    live_crops_by_label[obj.label] = bgr[cy1:cy2, cx1:cx2].copy()
 
                 # Update live point cloud
                 if all_pts:
@@ -535,7 +559,6 @@ class VCDemo:
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
                 cv2.imshow("RT-SSI - Live Detection", frame)
-                last_frame = bgr.copy()
 
                 vis.poll_events()
                 vis.update_renderer()
@@ -546,7 +569,7 @@ class VCDemo:
 
         vis.destroy_window()
         cv2.destroyAllWindows()
-        return selected[0], raw_points_by_label, last_frame
+        return selected[0], raw_points_by_label, live_crops_by_label
 
     def run_phase1_offline(self):
         """Offline version: show pre-computed point cloud, prompt in terminal."""
@@ -591,7 +614,7 @@ class VCDemo:
             time.sleep(0.03)
 
         vis.destroy_window()
-        return selected[0], {}, None  # no live raw points or frame in offline mode
+        return selected[0], {}, {}  # no live raw points or crops in offline mode
 
     # ---- Phase 2: Hacker inference status (terminal) ----
 
@@ -602,7 +625,7 @@ class VCDemo:
 
     # ---- Phase 3: Result visualization ----
 
-    def run_phase3(self, label, raw_points=None, live_frame=None):
+    def run_phase3(self, label, raw_points=None, live_crop=None):
         """Show 2 windows: raw partial cloud, complete mesh + info panel."""
         obj_data = self.objects[label]
 
@@ -639,12 +662,13 @@ class VCDemo:
         vis_mesh.reset_view_point(True)
 
         # Info panel (OpenCV) — positioned flush right of mesh window
-        panel = make_info_panel(obj_data, live_frame=live_frame)
+        panel = make_info_panel(obj_data, live_crop=live_crop)
         cv2.imshow("RT-SSI - Complete Mesh | Info", panel)
         cv2.moveWindow("RT-SSI - Complete Mesh | Info", 660 + mesh_w + 5, 50)
 
-        print(f"  {DIM}Showing results for {label}. Press 'q' to continue.{RESET}")
+        print(f"  {DIM}Press 'b' to go back, 'q' to quit.{RESET}")
 
+        go_back = False
         while True:
             vis_partial.poll_events()
             vis_partial.update_renderer()
@@ -652,12 +676,16 @@ class VCDemo:
             vis_mesh.update_renderer()
 
             key = cv2.waitKey(30) & 0xFF
-            if key in (ord('q'), 27):
+            if key == ord('b'):
+                go_back = True
+                break
+            elif key in (ord('q'), 27):
                 break
 
         vis_partial.destroy_window()
         vis_mesh.destroy_window()
         cv2.destroyAllWindows()
+        return go_back
 
     # ---- Main loop ----
 
@@ -670,9 +698,9 @@ class VCDemo:
         while True:
             # Phase 1: live detection + object selection
             if self.offline:
-                selected, raw_points_map, live_frame = self.run_phase1_offline()
+                selected, raw_points_map, live_crops = self.run_phase1_offline()
             else:
-                selected, raw_points_map, live_frame = self.run_phase1_live()
+                selected, raw_points_map, live_crops = self.run_phase1_live()
 
             if selected is None or selected == "__quit__":
                 print(f"\n{DIM}Exiting demo.{RESET}")
@@ -681,9 +709,14 @@ class VCDemo:
             # Phase 2: hacker inference status
             self.run_phase2(selected)
 
-            # Phase 3: result visualization (use live raw points if captured)
+            # Phase 3: result visualization
             live_raw = raw_points_map.get(selected)
-            self.run_phase3(selected, raw_points=live_raw, live_frame=live_frame)
+            live_crop = live_crops.get(selected)
+            go_back = self.run_phase3(selected, raw_points=live_raw, live_crop=live_crop)
+
+            if not go_back:
+                print(f"\n{DIM}Exiting.{RESET}")
+                break
 
             print(f"\n{DIM}{'─'*40}{RESET}")
             print(f"{DIM}Returning to detection view...{RESET}")
