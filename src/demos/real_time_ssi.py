@@ -457,12 +457,18 @@ class VCDemo:
         available = list(self.objects.keys())
         classes = YOLOE_CLASSES
 
-        # --- Persistent windows ---
-        # Window 1: live video (OpenCV)
-        # Window 2: live raw point cloud (Open3D)
+        # --- Window layout ---
+        # Top:    Live Video (OpenCV)                      ~880x560
+        # Bottom: Point Cloud | Complete Mesh | Info Panel
+        TOP_W, TOP_H = 880, 560
+        BOT_W, BOT_H = 440, 380
+        INFO_W = PANEL_W  # 400
+        ROW2_Y = TOP_H + 60  # top height + title bar + gap
+
+        # Bottom-left: raw point cloud
         vis_pcd = o3d.visualization.Visualizer()
-        vis_pcd.create_window("RT-SSI - Raw Point Cloud", width=640, height=480,
-                              left=660, top=50)
+        vis_pcd.create_window("RT-SSI - Raw Point Cloud", width=BOT_W, height=BOT_H,
+                              left=0, top=ROW2_Y)
         opt = vis_pcd.get_render_option()
         opt.point_size = 2.0
         opt.background_color = np.array([0.05, 0.05, 0.05])
@@ -471,14 +477,14 @@ class VCDemo:
         vis_pcd.add_geometry(live_pcd)
         first_points = True
 
-        # Window 3: complete mesh (Open3D) — created once, shown after inference
+        # Bottom-center: complete mesh (shown after inference)
         vis_mesh = o3d.visualization.Visualizer()
-        vis_mesh.create_window("RT-SSI - Complete Mesh", width=640, height=480,
-                               left=660, top=560)
+        vis_mesh.create_window("RT-SSI - Complete Mesh", width=BOT_W, height=BOT_H,
+                               left=BOT_W, top=ROW2_Y)
         opt = vis_mesh.get_render_option()
         opt.background_color = np.array([0.05, 0.05, 0.05])
         opt.mesh_show_wireframe = False
-        mesh_geom = None  # current mesh geometry in the window
+        mesh_geom = None
 
         # State
         raw_points_by_label = {}
@@ -493,6 +499,7 @@ class VCDemo:
                     remap_labels(detected)
                     frame = draw_detections(bgr, detected)
                     cv2.imshow("RT-SSI - Live Detection", frame)
+                    cv2.moveWindow("RT-SSI - Live Detection", 0, 0)
                     vis_pcd.poll_events()
                     vis_pcd.update_renderer()
                     vis_mesh.poll_events()
@@ -609,6 +616,7 @@ class VCDemo:
                     live_crop = live_crops_by_label.get(label)
                     panel = make_info_panel(obj_data, live_crop=live_crop)
                     cv2.imshow("RT-SSI - Info", panel)
+                    cv2.moveWindow("RT-SSI - Info", BOT_W * 2, ROW2_Y)
 
                     inference_done = True
                     print(f"\n  {DIM}Press 'q' to quit.{RESET}")
@@ -625,10 +633,13 @@ class VCDemo:
         """Offline mode with pre-computed data only."""
         available = list(self.objects.keys())
 
-        # Point cloud window
+        BOT_W, BOT_H = 440, 380
+        ROW2_Y = 60  # no live video on top in offline
+
+        # Left: point cloud
         vis = o3d.visualization.Visualizer()
-        vis.create_window("RT-SSI - Raw Point Cloud", width=720, height=540,
-                          left=700, top=50)
+        vis.create_window("RT-SSI - Raw Point Cloud", width=BOT_W, height=BOT_H,
+                          left=0, top=ROW2_Y)
         opt = vis.get_render_option()
         opt.point_size = 2.0
         opt.background_color = np.array([0.05, 0.05, 0.05])
@@ -637,10 +648,10 @@ class VCDemo:
         vis.add_geometry(scene_pcd)
         vis.reset_view_point(True)
 
-        # Mesh window
+        # Center: mesh
         vis_mesh = o3d.visualization.Visualizer()
-        vis_mesh.create_window("RT-SSI - Complete Mesh", width=640, height=480,
-                               left=700, top=620)
+        vis_mesh.create_window("RT-SSI - Complete Mesh", width=BOT_W, height=BOT_H,
+                               left=BOT_W, top=ROW2_Y)
         opt = vis_mesh.get_render_option()
         opt.background_color = np.array([0.05, 0.05, 0.05])
         opt.mesh_show_wireframe = False
@@ -691,6 +702,7 @@ class VCDemo:
 
                 panel = make_info_panel(obj_data)
                 cv2.imshow("RT-SSI - Info", panel)
+                cv2.moveWindow("RT-SSI - Info", BOT_W * 2, ROW2_Y)
 
                 inference_done = True
                 print(f"\n  {DIM}Press 'q' to quit.{RESET}")
