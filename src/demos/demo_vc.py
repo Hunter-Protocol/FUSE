@@ -429,24 +429,39 @@ class VCDemo:
         vis.add_geometry(scene_pcd)
         vis.reset_view_point(True)
 
-        # Terminal prompt (non-blocking via thread)
-        selected = [None]
-
-        def ask_input():
-            print(f"\n{BOLD}Available objects: {', '.join(available)}{RESET}")
-            while selected[0] is None:
-                choice = input(f"\n{YELLOW}>{RESET} Enter object name for inference: ").strip().lower()
-                if choice in available:
-                    selected[0] = choice
-                elif choice in ("q", "quit", "exit"):
-                    selected[0] = "__quit__"
-                else:
-                    print(f"  {RED}Unknown object '{choice}'. Choose from: {', '.join(available)}{RESET}")
-
-        input_thread = threading.Thread(target=ask_input, daemon=True)
-        input_thread.start()
-
         with FUSEPipeline(classes, svo_path=self.svo_path, model_size="11m") as pipe:
+            # Run a few warmup frames so model is loaded before showing prompt
+            for _ in range(3):
+                bgr, detected, _, _ = pipe.process_frame(skip_scene=True)
+                if bgr is not None:
+                    remap_labels(detected)
+                    frame = draw_detections(bgr, detected)
+                    cv2.imshow("FUSE - Live Detection", frame)
+                    vis.poll_events()
+                    vis.update_renderer()
+                    cv2.waitKey(1)
+
+            # Now show the prompt (after all init output is done)
+            selected = [None]
+
+            def ask_input():
+                print(f"\n{BOLD}{CYAN}{'─'*50}{RESET}")
+                print(f"{BOLD}  FUSE — Object Selection{RESET}")
+                print(f"{BOLD}{CYAN}{'─'*50}{RESET}")
+                print(f"\n  Detected objects are shown in the video feed.")
+                print(f"  Available for inference: {BOLD}{', '.join(available)}{RESET}")
+                while selected[0] is None:
+                    choice = input(f"\n  {YELLOW}>{RESET} Which object? ").strip().lower()
+                    if choice in available:
+                        selected[0] = choice
+                    elif choice in ("q", "quit", "exit"):
+                        selected[0] = "__quit__"
+                    else:
+                        print(f"  {RED}'{choice}' not available. Choose from: {', '.join(available)}{RESET}")
+
+            input_thread = threading.Thread(target=ask_input, daemon=True)
+            input_thread.start()
+
             fps = 0.0
             prev_time = time.time()
 
@@ -503,15 +518,19 @@ class VCDemo:
         selected = [None]
 
         def ask_input():
-            print(f"\n{BOLD}Available objects: {', '.join(available)}{RESET}")
+            print(f"\n{BOLD}{CYAN}{'─'*50}{RESET}")
+            print(f"{BOLD}  FUSE — Object Selection{RESET}")
+            print(f"{BOLD}{CYAN}{'─'*50}{RESET}")
+            print(f"\n  Point clouds are shown in the 3D viewer.")
+            print(f"  Available for inference: {BOLD}{', '.join(available)}{RESET}")
             while selected[0] is None:
-                choice = input(f"\n{YELLOW}>{RESET} Enter object name for inference: ").strip().lower()
+                choice = input(f"\n  {YELLOW}>{RESET} Which object? ").strip().lower()
                 if choice in available:
                     selected[0] = choice
                 elif choice in ("q", "quit", "exit"):
                     selected[0] = "__quit__"
                 else:
-                    print(f"  {RED}Unknown object '{choice}'. Choose from: {', '.join(available)}{RESET}")
+                    print(f"  {RED}'{choice}' not available. Choose from: {', '.join(available)}{RESET}")
 
         input_thread = threading.Thread(target=ask_input, daemon=True)
         input_thread.start()
