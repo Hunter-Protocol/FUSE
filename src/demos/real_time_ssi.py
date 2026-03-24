@@ -297,9 +297,10 @@ def build_scene_pcd(objects_data):
 # Info panel (Phase 3)
 # ---------------------------------------------------------------------------
 
-def make_info_panel(obj_data):
+def make_info_panel(obj_data, height=None):
     """Render the OpenCV info panel for a single object."""
-    panel = np.zeros((PANEL_H, PANEL_W, 3), dtype=np.uint8)
+    h = height if height is not None else PANEL_H
+    panel = np.zeros((h, PANEL_W, 3), dtype=np.uint8)
     panel[:] = (30, 30, 30)
 
     y = 10
@@ -583,16 +584,16 @@ class VCDemo:
     # ---- Phase 3: Result visualization ----
 
     def run_phase3(self, label, raw_points=None):
-        """Show 2 windows: raw partial cloud, complete mesh + info panel."""
+        """Show 2 windows: raw partial cloud (Open3D), mesh+info (single OpenCV)."""
         obj_data = self.objects[label]
 
         # Use live raw points if available, otherwise fall back to stored data
         partial_pts = raw_points if raw_points is not None else obj_data["partial"]
 
-        # Window 1: raw partial point cloud
+        # Window 1: raw partial point cloud (Open3D, interactive)
         vis_partial = o3d.visualization.Visualizer()
         vis_partial.create_window("RT-SSI - Partial Point Cloud (raw)",
-                                   width=640, height=480, left=0, top=50)
+                                   width=640, height=540, left=0, top=50)
         opt = vis_partial.get_render_option()
         opt.point_size = 2.0
         opt.background_color = np.array([0.05, 0.05, 0.05])
@@ -601,15 +602,16 @@ class VCDemo:
         vis_partial.add_geometry(pcd)
         vis_partial.reset_view_point(True)
 
-        # Window 2: complete mesh (with info panel flush on right)
-        mesh_w, mesh_h = 640, 480
+        # Window 2: mesh + info combined in one OpenCV window
+        # Use offscreen Open3D renderer for the mesh, auto-rotating
+        mesh_render_w, mesh_render_h = 540, 540
         vis_mesh = o3d.visualization.Visualizer()
-        vis_mesh.create_window("RT-SSI - Complete Mesh",
-                                width=mesh_w, height=mesh_h, left=660, top=50)
+        vis_mesh.create_window("offscreen", width=mesh_render_w,
+                                height=mesh_render_h, visible=False)
         opt = vis_mesh.get_render_option()
-        opt.point_size = 2.0
         opt.background_color = np.array([0.05, 0.05, 0.05])
         opt.mesh_show_wireframe = False
+        opt.mesh_show_back_face = True
 
         if obj_data["mesh"] is not None:
             mesh_geom = create_mesh_geometry(obj_data)
@@ -618,18 +620,30 @@ class VCDemo:
         vis_mesh.add_geometry(mesh_geom)
         vis_mesh.reset_view_point(True)
 
-        # Info panel (OpenCV) — positioned flush right of mesh window
-        panel = make_info_panel(obj_data)
-        cv2.imshow("RT-SSI - Complete Mesh | Info", panel)
-        cv2.moveWindow("RT-SSI - Complete Mesh | Info", 660 + mesh_w + 5, 50)
+        # Pre-render the info panel (right side)
+        info_panel = make_info_panel(obj_data, height=mesh_render_h)
 
         print(f"  {DIM}Showing results for {label}. Press 'q' to continue.{RESET}")
 
+        rotation_speed = 2.0  # degrees per frame
         while True:
             vis_partial.poll_events()
             vis_partial.update_renderer()
+
+            # Rotate mesh camera
+            ctr = vis_mesh.get_view_control()
+            ctr.rotate(rotation_speed, 0.0)
             vis_mesh.poll_events()
             vis_mesh.update_renderer()
+
+            # Capture mesh render as image
+            mesh_img = np.asarray(vis_mesh.capture_screen_float_buffer(False))
+            mesh_img = (mesh_img * 255).astype(np.uint8)
+            mesh_bgr = cv2.cvtColor(mesh_img, cv2.COLOR_RGB2BGR)
+
+            # Composite: mesh on left, info on right
+            combined = np.hstack([mesh_bgr, info_panel])
+            cv2.imshow("RT-SSI - Complete Mesh + Info", combined)
 
             key = cv2.waitKey(30) & 0xFF
             if key in (ord('q'), 27):
