@@ -149,11 +149,10 @@ def run_inference_status(label, obj_data):
     n_pts = len(obj_data["partial"])
     spinner(f"Extracting depth points from stereo pair... {n_pts:,} points", 1.2)
 
-    # Phase 2: Mask projection
+    # Phase 2: Mesh reconstruction
     print(f"\n  {BOLD}[2/4] SPATIAL SEMANTICS — MESH RECONSTRUCTION{RESET}")
     fake_hex_stream(3)
-    spinner("Uploading crop to Modal A100 cluster...", 0.8)
-    spinner("Running Hunyuan3D-2 DiT flow matching (50 steps)...", 2.5)
+    spinner("Reconstructing complete 3D mesh from partial observation...", 2.5)
     if obj_data["mesh"]:
         n_faces = len(obj_data["mesh"].faces)
         n_verts = len(obj_data["mesh"].vertices)
@@ -584,7 +583,7 @@ class VCDemo:
     # ---- Phase 3: Result visualization ----
 
     def run_phase3(self, label, raw_points=None):
-        """Show 3 windows: raw partial cloud, complete mesh, info panel."""
+        """Show 2 windows: raw partial cloud, complete mesh + info panel."""
         obj_data = self.objects[label]
 
         # Use live raw points if available, otherwise fall back to stored data
@@ -602,10 +601,11 @@ class VCDemo:
         vis_partial.add_geometry(pcd)
         vis_partial.reset_view_point(True)
 
-        # Window 2: complete mesh
+        # Window 2: complete mesh (with info panel flush on right)
+        mesh_w, mesh_h = 640, 480
         vis_mesh = o3d.visualization.Visualizer()
         vis_mesh.create_window("RT-SSI - Complete Mesh",
-                                width=640, height=480, left=660, top=50)
+                                width=mesh_w, height=mesh_h, left=660, top=50)
         opt = vis_mesh.get_render_option()
         opt.point_size = 2.0
         opt.background_color = np.array([0.05, 0.05, 0.05])
@@ -618,9 +618,10 @@ class VCDemo:
         vis_mesh.add_geometry(mesh_geom)
         vis_mesh.reset_view_point(True)
 
-        # Window 3: info panel (OpenCV)
+        # Info panel (OpenCV) — positioned flush right of mesh window
         panel = make_info_panel(obj_data)
-        cv2.imshow("RT-SSI - Info", panel)
+        cv2.imshow("RT-SSI - Complete Mesh | Info", panel)
+        cv2.moveWindow("RT-SSI - Complete Mesh | Info", 660 + mesh_w + 5, 50)
 
         print(f"  {DIM}Showing results for {label}. Press 'q' to continue.{RESET}")
 
