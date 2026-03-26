@@ -534,6 +534,7 @@ class VCDemo:
         inference_done = False
         active_label = None
         loading_start = None  # when click happened (for loading bar)
+        saved_mesh_views = {}  # label -> pinhole camera params (user's manual orientation)
         latest_detected = []  # shared with mouse callback
 
         LOADING_DURATION = 1.5  # seconds for loading bar animation
@@ -638,6 +639,10 @@ class VCDemo:
 
                 # Handle click → start loading (or switch to new object)
                 if selected[0] is not None and selected[0] != active_label:
+                    # Save current mesh camera orientation before switching
+                    if active_label is not None:
+                        ctr = vis_mesh.get_view_control()
+                        saved_mesh_views[active_label] = ctr.convert_to_pinhole_camera_parameters()
                     active_label = selected[0]
                     loading_start = time.time()
                     inference_done = False
@@ -678,7 +683,13 @@ class VCDemo:
                         else:
                             mesh_geom = create_partial_pcd(obj_data["partial"], label)
                         vis_mesh.add_geometry(mesh_geom, reset_bounding_box=True)
-                        vis_mesh.reset_view_point(True)
+                        # Restore saved camera view if user already oriented this object
+                        if label in saved_mesh_views:
+                            ctr = vis_mesh.get_view_control()
+                            ctr.convert_from_pinhole_camera_parameters(
+                                saved_mesh_views[label], allow_arbitrary=True)
+                        else:
+                            vis_mesh.reset_view_point(True)
 
                         live_crop = live_crops_by_label.get(label)
                         panel = make_info_panel(obj_data, live_crop=live_crop)
