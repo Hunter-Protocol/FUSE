@@ -266,7 +266,7 @@ def draw_detections(frame, objects, selected_label=None):
 
         # "INFERRING..." tag for selected object
         if is_selected:
-            cv2.putText(frame, "INFERRING...", (x1, y2 + 20),
+            cv2.putText(frame, "INFERRING...", (x1, y1 - th - 28),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
     cv2.addWeighted(overlay, 0.5, frame, 0.5, 0, frame)
