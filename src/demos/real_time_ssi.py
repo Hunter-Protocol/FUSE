@@ -369,8 +369,6 @@ def make_info_panel(obj_data, live_crop=None):
     if mesh is not None:
         cv2.putText(panel, f"Complete mesh: {len(mesh.faces):,} faces", (20, y), font, 0.5, gray, 1)
         y += 22
-        cv2.putText(panel, "Completion: ~28s (cloud A100)", (20, y), font, 0.5, gray, 1)
-        y += 22
 
     cv2.line(panel, (10, y), (PANEL_W - 10, y), (80, 80, 80), 1)
     y += 20
@@ -491,6 +489,12 @@ class VCDemo:
         live_crops_by_label = {}
         inference_done = False  # whether we've run inference for a selection
 
+        # Pre-create OpenCV windows at fixed positions
+        cv2.namedWindow("RT-SSI - Live Detection", cv2.WINDOW_AUTOSIZE)
+        cv2.moveWindow("RT-SSI - Live Detection", 0, 0)
+        cv2.namedWindow("RT-SSI - Info", cv2.WINDOW_AUTOSIZE)
+        cv2.moveWindow("RT-SSI - Info", BOT_W * 2, ROW2_Y)
+
         with FUSEPipeline(classes, svo_path=self.svo_path, model_size="11m") as pipe:
             # Warmup
             for _ in range(3):
@@ -500,11 +504,8 @@ class VCDemo:
                     frame = draw_detections(bgr, detected)
                     frame = cv2.resize(frame, (LIVE_W, LIVE_H))
                     cv2.imshow("RT-SSI - Live Detection", frame)
-                    cv2.moveWindow("RT-SSI - Live Detection", 0, 0)
                     vis_pcd.poll_events()
                     vis_pcd.update_renderer()
-                    vis_mesh.poll_events()
-                    vis_mesh.update_renderer()
                     cv2.waitKey(1)
 
             # Prompt for object selection (non-blocking thread)
