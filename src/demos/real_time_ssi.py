@@ -535,6 +535,21 @@ class VCDemo:
         active_label = None
         loading_start = None  # when click happened (for loading bar)
         saved_mesh_views = {}  # label -> pinhole camera params (user's manual orientation)
+
+        # Load saved views from disk if available
+        views_path = DATA_DIR / "mesh_views.json"
+        if views_path.exists():
+            with open(views_path) as f:
+                views_on_disk = json.load(f)
+            for label, v in views_on_disk.items():
+                params = o3d.camera.PinholeCameraParameters()
+                intrinsic = o3d.camera.PinholeCameraIntrinsic()
+                intrinsic.width = v["width"]
+                intrinsic.height = v["height"]
+                intrinsic.intrinsic_matrix = np.array(v["intrinsic"])
+                params.intrinsic = intrinsic
+                params.extrinsic = np.array(v["extrinsic"])
+                saved_mesh_views[label] = params
         latest_detected = []  # shared with mouse callback
 
         LOADING_DURATION = 1.5  # seconds for loading bar animation
@@ -717,7 +732,24 @@ class VCDemo:
 
                 key = cv2.waitKey(1) & 0xFF
                 if key in (ord('q'), 27):
+                    # Save current object's view before quitting
+                    if active_label is not None:
+                        ctr = vis_mesh.get_view_control()
+                        saved_mesh_views[active_label] = ctr.convert_to_pinhole_camera_parameters()
                     break
+
+        # Persist all saved views to disk
+        views_path = DATA_DIR / "mesh_views.json"
+        views_to_save = {}
+        for label, params in saved_mesh_views.items():
+            views_to_save[label] = {
+                "intrinsic": params.intrinsic.intrinsic_matrix.tolist(),
+                "extrinsic": params.extrinsic.tolist(),
+                "width": params.intrinsic.width,
+                "height": params.intrinsic.height,
+            }
+        with open(views_path, 'w') as f:
+            json.dump(views_to_save, f, indent=2)
 
         vis_pcd.destroy_window()
         vis_mesh.destroy_window()
