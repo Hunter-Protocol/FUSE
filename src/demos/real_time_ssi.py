@@ -661,6 +661,10 @@ class VCDemo:
                     active_label = selected[0]
                     loading_start = time.time()
                     inference_done = False
+                    # Clear previous mesh from window during loading
+                    if mesh_geom is not None:
+                        vis_mesh.remove_geometry(mesh_geom, reset_bounding_box=False)
+                        mesh_geom = None
                     print(f"  {CYAN}> Selected: {active_label}{RESET}")
 
                 # Draw detections with live metrics
