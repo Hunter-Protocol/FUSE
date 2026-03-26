@@ -683,7 +683,6 @@ class VCDemo:
                         live_crop = live_crops_by_label.get(label)
                         panel = make_info_panel(obj_data, live_crop=live_crop)
                         cv2.imshow("RT-SSI - Info", panel)
-                        cv2.moveWindow("RT-SSI - Info", BOT_W * 2, ROW2_Y)
 
                         inference_done = True
 
@@ -786,7 +785,6 @@ class VCDemo:
 
                 panel = make_info_panel(obj_data)
                 cv2.imshow("RT-SSI - Info", panel)
-                cv2.moveWindow("RT-SSI - Info", BOT_W * 2, ROW2_Y)
 
                 inference_done = True
                 print(f"\n  {DIM}Press 'q' to quit.{RESET}")
