@@ -533,13 +533,34 @@ class VCDemo:
         live_crops_by_label = {}
         inference_done = False
         active_label = None
-        inference_start_time = None
+        loading_start = None  # when click happened (for loading bar)
+        latest_detected = []  # shared with mouse callback
+
+        LOADING_DURATION = 1.5  # seconds for loading bar animation
 
         # Pre-create OpenCV windows at fixed positions
         cv2.namedWindow("RT-SSI - Live Detection", cv2.WINDOW_AUTOSIZE)
         cv2.moveWindow("RT-SSI - Live Detection", 0, 0)
         cv2.namedWindow("RT-SSI - Info", cv2.WINDOW_AUTOSIZE)
         cv2.moveWindow("RT-SSI - Info", BOT_W * 2, ROW2_Y)
+
+        # Mouse click callback — select object by clicking its bounding box
+        def on_click(event, x, y, flags, param):
+            if event != cv2.EVENT_LBUTTONDOWN:
+                return
+            # Scale click coords from resized frame back to original
+            scale_x = 1280.0 / LIVE_W
+            scale_y = 720.0 / LIVE_H
+            orig_x, orig_y = int(x * scale_x), int(y * scale_y)
+            for obj in latest_detected:
+                x1, y1, x2, y2 = obj.box_2d
+                if x1 <= orig_x <= x2 and y1 <= orig_y <= y2:
+                    if obj.label in self.objects:
+                        selected[0] = obj.label
+                    break
+
+        cv2.setMouseCallback("RT-SSI - Live Detection", on_click)
+        selected = [None]
 
         with FUSEPipeline(classes, svo_path=self.svo_path, model_size="11m") as pipe:
             # Warmup
@@ -554,26 +575,10 @@ class VCDemo:
                     vis_pcd.update_renderer()
                     cv2.waitKey(1)
 
-            # Prompt for object selection (non-blocking thread)
-            selected = [None]
-
-            def ask_input():
-                print(f"\n{BOLD}{CYAN}{'─'*50}{RESET}")
-                print(f"{BOLD}  RT-SSI — Object Selection{RESET}")
-                print(f"{BOLD}{CYAN}{'─'*50}{RESET}")
-                print(f"\n  Detected objects are shown in the video feed.")
-                print(f"  Available for inference: {BOLD}{', '.join(available)}{RESET}")
-                while selected[0] is None:
-                    choice = input(f"\n  {YELLOW}>{RESET} Which object? ").strip().lower()
-                    if choice in available:
-                        selected[0] = choice
-                    elif choice in ("q", "quit", "exit"):
-                        selected[0] = "__quit__"
-                    else:
-                        print(f"  {RED}'{choice}' not available. Choose from: {', '.join(available)}{RESET}")
-
-            input_thread = threading.Thread(target=ask_input, daemon=True)
-            input_thread.start()
+            print(f"\n{BOLD}{CYAN}{'─'*50}{RESET}")
+            print(f"{BOLD}  RT-SSI — Click on an object to infer{RESET}")
+            print(f"{BOLD}{CYAN}{'─'*50}{RESET}")
+            print(f"  {DIM}Press 'q' to quit.{RESET}")
 
             fps = 0.0
             prev_time = time.time()
@@ -589,6 +594,7 @@ class VCDemo:
                     continue
 
                 remap_labels(detected)
+                latest_detected = detected  # share with click callback
 
                 # Extract raw points + crops per label
                 pc_data = pipe.pc_mat.get_data()
@@ -600,7 +606,6 @@ class VCDemo:
                     raw_pts = xyz[valid].astype(np.float32)
                     if len(raw_pts) > 0:
                         color = LABEL_COLORS.get(obj.label, DEFAULT_LABEL_COLOR)
-                        # Dim non-selected objects after inference
                         if active_label and obj.label != active_label:
                             color = tuple(c * 0.3 for c in color)
                         all_pts.append(raw_pts)
@@ -631,57 +636,74 @@ class VCDemo:
                     vis_pcd.reset_view_point(True)
                     first_points = False
 
+                # Handle click → start loading (or switch to new object)
+                if selected[0] is not None and selected[0] != active_label:
+                    active_label = selected[0]
+                    loading_start = time.time()
+                    inference_done = False
+                    print(f"  {CYAN}> Selected: {active_label}{RESET}")
+
                 # Draw detections with live metrics
                 frame = draw_detections(bgr, detected,
                                         selected_label=active_label,
                                         inference_done=inference_done,
-                                        inference_start=inference_start_time,
+                                        inference_start=loading_start,
                                         raw_counts=raw_counts)
+
+                # Draw loading bar on selected object's bounding box
+                if active_label and not inference_done and loading_start:
+                    elapsed = time.time() - loading_start
+                    progress = min(elapsed / LOADING_DURATION, 1.0)
+                    for obj in detected:
+                        if obj.label == active_label:
+                            x1, y1, x2, y2 = obj.box_2d
+                            bar_w = int((x2 - x1) * progress)
+                            # Background bar
+                            cv2.rectangle(frame, (x1, y2 + 2), (x2, y2 + 10),
+                                          (50, 50, 50), -1)
+                            # Progress fill
+                            cv2.rectangle(frame, (x1, y2 + 2), (x1 + bar_w, y2 + 10),
+                                          (0, 255, 255), -1)
+                            break
+
+                    # Loading complete → show results
+                    if progress >= 1.0:
+                        label = active_label
+                        obj_data = self.objects[label]
+
+                        if mesh_geom is not None:
+                            vis_mesh.remove_geometry(mesh_geom, reset_bounding_box=False)
+                        if obj_data["mesh"] is not None:
+                            mesh_geom = create_mesh_geometry(obj_data)
+                        else:
+                            mesh_geom = create_partial_pcd(obj_data["partial"], label)
+                        vis_mesh.add_geometry(mesh_geom, reset_bounding_box=True)
+                        vis_mesh.reset_view_point(True)
+
+                        live_crop = live_crops_by_label.get(label)
+                        panel = make_info_panel(obj_data, live_crop=live_crop)
+                        cv2.imshow("RT-SSI - Info", panel)
+                        cv2.moveWindow("RT-SSI - Info", BOT_W * 2, ROW2_Y)
+
+                        inference_done = True
+
                 now = time.time()
                 fps = 0.9 * fps + 0.1 * (1.0 / max(now - prev_time, 1e-6))
                 prev_time = now
                 frame = cv2.resize(frame, (LIVE_W, LIVE_H))
                 cv2.putText(frame, f"FPS: {fps:.1f} | Latency: {latency_ms:.0f}ms",
                             (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                if not active_label:
+                    cv2.putText(frame, "Click on an object to infer",
+                                (10, LIVE_H - 15), cv2.FONT_HERSHEY_SIMPLEX,
+                                0.6, (200, 200, 200), 1)
                 cv2.imshow("RT-SSI - Live Detection", frame)
 
-                # Poll all Open3D windows
+                # Poll Open3D windows
                 vis_pcd.poll_events()
                 vis_pcd.update_renderer()
                 vis_mesh.poll_events()
                 vis_mesh.update_renderer()
-
-                # Check if user selected an object
-                if selected[0] is not None and not inference_done:
-                    if selected[0] == "__quit__":
-                        break
-
-                    label = selected[0]
-                    active_label = label
-                    inference_start_time = time.time()
-
-                    # Run hacker inference status (blocks briefly in terminal)
-                    run_inference_status(label, self.objects[label])
-
-                    # Show mesh in the mesh window
-                    obj_data = self.objects[label]
-                    if mesh_geom is not None:
-                        vis_mesh.remove_geometry(mesh_geom, reset_bounding_box=False)
-                    if obj_data["mesh"] is not None:
-                        mesh_geom = create_mesh_geometry(obj_data)
-                    else:
-                        mesh_geom = create_partial_pcd(obj_data["partial"], label)
-                    vis_mesh.add_geometry(mesh_geom, reset_bounding_box=True)
-                    vis_mesh.reset_view_point(True)
-
-                    # Show info panel (OpenCV)
-                    live_crop = live_crops_by_label.get(label)
-                    panel = make_info_panel(obj_data, live_crop=live_crop)
-                    cv2.imshow("RT-SSI - Info", panel)
-                    cv2.moveWindow("RT-SSI - Info", BOT_W * 2, ROW2_Y)
-
-                    inference_done = True
-                    print(f"\n  {DIM}Press 'q' to quit.{RESET}")
 
                 key = cv2.waitKey(1) & 0xFF
                 if key in (ord('q'), 27):
