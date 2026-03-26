@@ -502,9 +502,9 @@ class VCDemo:
         # --- Window layout ---
         # Top:    Live Video (OpenCV, resized)
         # Bottom: Point Cloud | Complete Mesh | Info Panel
-        LIVE_W, LIVE_H = 860, 480  # resized live feed
-        BOT_W, BOT_H = 430, 400
-        TITLE_BAR = 55  # window title bar + border
+        LIVE_W, LIVE_H = 960, 540  # resized live feed (fills left half)
+        BOT_W, BOT_H = 480, 480
+        TITLE_BAR = 35
         ROW2_Y = LIVE_H + TITLE_BAR
 
         # Bottom-left: raw point cloud
