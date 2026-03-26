@@ -223,8 +223,9 @@ def bgr_color(rgb_color):
     return (int(rgb_color[2] * 255), int(rgb_color[1] * 255), int(rgb_color[0] * 255))
 
 
-def draw_detections(frame, objects, selected_label=None):
-    """Draw bounding boxes, masks, and labels. Highlight selected object."""
+def draw_detections(frame, objects, selected_label=None, inference_done=False,
+                    inference_start=None, raw_counts=None):
+    """Draw bounding boxes, masks, labels, and live metrics. Highlight selected object."""
     overlay = frame.copy()
     for obj in objects:
         color_bgr = bgr_color(obj.color)
@@ -243,17 +244,13 @@ def draw_detections(frame, objects, selected_label=None):
         # Corner accents for selected object
         if is_selected:
             corner_len = 20
-            ct = 3  # corner thickness
-            # Top-left
+            ct = 3
             cv2.line(frame, (x1, y1), (x1 + corner_len, y1), (255, 255, 255), ct)
             cv2.line(frame, (x1, y1), (x1, y1 + corner_len), (255, 255, 255), ct)
-            # Top-right
             cv2.line(frame, (x2, y1), (x2 - corner_len, y1), (255, 255, 255), ct)
             cv2.line(frame, (x2, y1), (x2, y1 + corner_len), (255, 255, 255), ct)
-            # Bottom-left
             cv2.line(frame, (x1, y2), (x1 + corner_len, y2), (255, 255, 255), ct)
             cv2.line(frame, (x1, y2), (x1, y2 - corner_len), (255, 255, 255), ct)
-            # Bottom-right
             cv2.line(frame, (x2, y2), (x2 - corner_len, y2), (255, 255, 255), ct)
             cv2.line(frame, (x2, y2), (x2, y2 - corner_len), (255, 255, 255), ct)
 
@@ -264,10 +261,33 @@ def draw_detections(frame, objects, selected_label=None):
         cv2.putText(frame, text, (x1, y1 - 4),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1)
 
-        # "INFERRING..." tag for selected object
+        # Live metrics below bounding box
+        metric_y = y2 + 16
+        # 3D centroid
+        if obj.source == "fused" and obj.centroid:
+            cx, cy, cz = obj.centroid
+            cv2.putText(frame, f"xyz: ({cx:.2f}, {cy:.2f}, {cz:.2f})",
+                        (x1, metric_y), cv2.FONT_HERSHEY_SIMPLEX, 0.4,
+                        (255, 255, 255), 1)
+            metric_y += 16
+        # Raw point count
+        raw_n = raw_counts.get(obj.label, 0) if raw_counts else 0
+        if raw_n > 0:
+            cv2.putText(frame, f"pts: {raw_n:,}",
+                        (x1, metric_y), cv2.FONT_HERSHEY_SIMPLEX, 0.4,
+                        (180, 180, 180), 1)
+            metric_y += 16
+
+        # Inference status tag above box
         if is_selected:
-            cv2.putText(frame, "INFERRING...", (x1, y1 - th - 28),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+            if inference_done:
+                cv2.putText(frame, "INFERRED", (x1, y1 - th - 28),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            elif inference_start is not None:
+                elapsed = time.time() - inference_start
+                cv2.putText(frame, f"INFERRING... {elapsed:.1f}s",
+                            (x1, y1 - th - 28),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
     cv2.addWeighted(overlay, 0.5, frame, 0.5, 0, frame)
     return frame
@@ -512,7 +532,8 @@ class VCDemo:
         raw_points_by_label = {}
         live_crops_by_label = {}
         inference_done = False
-        active_label = None  # which object is being inferred
+        active_label = None
+        inference_start_time = None
 
         # Pre-create OpenCV windows at fixed positions
         cv2.namedWindow("RT-SSI - Live Detection", cv2.WINDOW_AUTOSIZE)
@@ -559,7 +580,9 @@ class VCDemo:
 
             # --- Main loop: live feed runs continuously ---
             while True:
+                t_frame = time.time()
                 bgr, detected, _, _ = pipe.process_frame(skip_scene=True)
+                latency_ms = (time.time() - t_frame) * 1000
                 if bgr is None:
                     if self.svo_path:
                         break
@@ -570,6 +593,7 @@ class VCDemo:
                 # Extract raw points + crops per label
                 pc_data = pipe.pc_mat.get_data()
                 all_pts, all_clr = [], []
+                raw_counts = {}
                 for obj in detected:
                     xyz = pc_data[:, :, :3][obj.mask]
                     valid = np.isfinite(xyz).all(axis=1)
@@ -582,6 +606,7 @@ class VCDemo:
                         all_pts.append(raw_pts)
                         all_clr.append(np.tile(color, (len(raw_pts), 1)))
                         raw_points_by_label[obj.label] = raw_pts
+                    raw_counts[obj.label] = len(raw_pts) if len(raw_pts) > 0 else 0
                     x1, y1, x2, y2 = obj.box_2d
                     pad = 10
                     h, w = bgr.shape[:2]
@@ -606,14 +631,18 @@ class VCDemo:
                     vis_pcd.reset_view_point(True)
                     first_points = False
 
-                # Draw detections (highlight selected object)
-                frame = draw_detections(bgr, detected, selected_label=active_label)
+                # Draw detections with live metrics
+                frame = draw_detections(bgr, detected,
+                                        selected_label=active_label,
+                                        inference_done=inference_done,
+                                        inference_start=inference_start_time,
+                                        raw_counts=raw_counts)
                 now = time.time()
                 fps = 0.9 * fps + 0.1 * (1.0 / max(now - prev_time, 1e-6))
                 prev_time = now
                 frame = cv2.resize(frame, (LIVE_W, LIVE_H))
-                cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                cv2.putText(frame, f"FPS: {fps:.1f} | Latency: {latency_ms:.0f}ms",
+                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                 cv2.imshow("RT-SSI - Live Detection", frame)
 
                 # Poll all Open3D windows
@@ -629,6 +658,7 @@ class VCDemo:
 
                     label = selected[0]
                     active_label = label
+                    inference_start_time = time.time()
 
                     # Run hacker inference status (blocks briefly in terminal)
                     run_inference_status(label, self.objects[label])
