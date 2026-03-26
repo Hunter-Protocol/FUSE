@@ -661,10 +661,17 @@ class VCDemo:
                     active_label = selected[0]
                     loading_start = time.time()
                     inference_done = False
-                    # Clear previous mesh from window during loading
+                    # Clear previous mesh and info during loading
                     if mesh_geom is not None:
                         vis_mesh.remove_geometry(mesh_geom, reset_bounding_box=False)
                         mesh_geom = None
+                    # Show "inferencing" placeholder in info panel
+                    loading_panel = np.zeros((PANEL_H, PANEL_W, 3), dtype=np.uint8)
+                    loading_panel[:] = (30, 30, 30)
+                    cv2.putText(loading_panel, f"Inferencing {active_label}...",
+                                (20, PANEL_H // 2), cv2.FONT_HERSHEY_SIMPLEX,
+                                0.7, (0, 255, 255), 2)
+                    cv2.imshow("RT-SSI - Info", loading_panel)
                     print(f"  {CYAN}> Selected: {active_label}{RESET}")
 
                 # Draw detections with live metrics
