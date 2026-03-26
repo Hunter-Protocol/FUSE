@@ -223,11 +223,12 @@ def bgr_color(rgb_color):
     return (int(rgb_color[2] * 255), int(rgb_color[1] * 255), int(rgb_color[0] * 255))
 
 
-def draw_detections(frame, objects):
-    """Draw bounding boxes, masks, and labels. Same colors as point cloud."""
+def draw_detections(frame, objects, selected_label=None):
+    """Draw bounding boxes, masks, and labels. Highlight selected object."""
     overlay = frame.copy()
     for obj in objects:
         color_bgr = bgr_color(obj.color)
+        is_selected = (selected_label is not None and obj.label == selected_label)
 
         # Filled mask
         overlay[obj.mask] = (
@@ -236,7 +237,25 @@ def draw_detections(frame, objects):
 
         # Bounding box
         x1, y1, x2, y2 = obj.box_2d
-        cv2.rectangle(frame, (x1, y1), (x2, y2), color_bgr, 2)
+        thickness = 4 if is_selected else 2
+        cv2.rectangle(frame, (x1, y1), (x2, y2), color_bgr, thickness)
+
+        # Corner accents for selected object
+        if is_selected:
+            corner_len = 20
+            ct = 3  # corner thickness
+            # Top-left
+            cv2.line(frame, (x1, y1), (x1 + corner_len, y1), (255, 255, 255), ct)
+            cv2.line(frame, (x1, y1), (x1, y1 + corner_len), (255, 255, 255), ct)
+            # Top-right
+            cv2.line(frame, (x2, y1), (x2 - corner_len, y1), (255, 255, 255), ct)
+            cv2.line(frame, (x2, y1), (x2, y1 + corner_len), (255, 255, 255), ct)
+            # Bottom-left
+            cv2.line(frame, (x1, y2), (x1 + corner_len, y2), (255, 255, 255), ct)
+            cv2.line(frame, (x1, y2), (x1, y2 - corner_len), (255, 255, 255), ct)
+            # Bottom-right
+            cv2.line(frame, (x2, y2), (x2 - corner_len, y2), (255, 255, 255), ct)
+            cv2.line(frame, (x2, y2), (x2, y2 - corner_len), (255, 255, 255), ct)
 
         # Label
         text = f"{obj.label} {obj.confidence:.2f}"
@@ -244,6 +263,11 @@ def draw_detections(frame, objects):
         cv2.rectangle(frame, (x1, y1 - th - 8), (x1 + tw, y1), color_bgr, -1)
         cv2.putText(frame, text, (x1, y1 - 4),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1)
+
+        # "INFERRING..." tag for selected object
+        if is_selected:
+            cv2.putText(frame, "INFERRING...", (x1, y2 + 20),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
     cv2.addWeighted(overlay, 0.5, frame, 0.5, 0, frame)
     return frame
@@ -487,7 +511,8 @@ class VCDemo:
         # State
         raw_points_by_label = {}
         live_crops_by_label = {}
-        inference_done = False  # whether we've run inference for a selection
+        inference_done = False
+        active_label = None  # which object is being inferred
 
         # Pre-create OpenCV windows at fixed positions
         cv2.namedWindow("RT-SSI - Live Detection", cv2.WINDOW_AUTOSIZE)
@@ -551,6 +576,9 @@ class VCDemo:
                     raw_pts = xyz[valid].astype(np.float32)
                     if len(raw_pts) > 0:
                         color = LABEL_COLORS.get(obj.label, DEFAULT_LABEL_COLOR)
+                        # Dim non-selected objects after inference
+                        if active_label and obj.label != active_label:
+                            color = tuple(c * 0.3 for c in color)
                         all_pts.append(raw_pts)
                         all_clr.append(np.tile(color, (len(raw_pts), 1)))
                         raw_points_by_label[obj.label] = raw_pts
@@ -578,8 +606,8 @@ class VCDemo:
                     vis_pcd.reset_view_point(True)
                     first_points = False
 
-                # Draw detections
-                frame = draw_detections(bgr, detected)
+                # Draw detections (highlight selected object)
+                frame = draw_detections(bgr, detected, selected_label=active_label)
                 now = time.time()
                 fps = 0.9 * fps + 0.1 * (1.0 / max(now - prev_time, 1e-6))
                 prev_time = now
@@ -600,6 +628,7 @@ class VCDemo:
                         break
 
                     label = selected[0]
+                    active_label = label
 
                     # Run hacker inference status (blocks briefly in terminal)
                     run_inference_status(label, self.objects[label])
